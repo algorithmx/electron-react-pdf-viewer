@@ -1,50 +1,36 @@
-import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
-import icon from '../../assets/icon.svg';
+import React, { ChangeEvent, useState } from 'react';
 import './App.css';
+import PdfViewer from './PdfViewer';
 
-function Hello() {
+function App() {
+  const [file, setFile] = useState<string | undefined>();
+
+  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event?.target?.files?.length) {
+      // eslint-disable-next-line no-console
+      console.log(event.target.files[0]);
+      const url = URL.createObjectURL(event.target.files[0]);
+      // eslint-disable-next-line no-console
+      console.log('url', url);
+      setFile(url);
+    }
+  };
+
   return (
     <div>
-      <div className="Hello">
-        <img width="200" alt="icon" src={icon} />
+      <div className="file-container">
+        <div>
+          <input
+            className="file-input"
+            type="file"
+            accept="application/pdf"
+            onChange={handleFile}
+          />
+        </div>
       </div>
-      <h1>electron-react-boilerplate</h1>
-      <div className="Hello">
-        <a
-          href="https://electron-react-boilerplate.js.org/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <button type="button">
-            <span role="img" aria-label="books">
-              📚
-            </span>
-            Read our docs
-          </button>
-        </a>
-        <a
-          href="https://github.com/sponsors/electron-react-boilerplate"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <button type="button">
-            <span role="img" aria-label="folded hands">
-              🙏
-            </span>
-            Donate
-          </button>
-        </a>
-      </div>
+      {file && <PdfViewer file={file} />}
     </div>
   );
 }
 
-export default function App() {
-  return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Hello />} />
-      </Routes>
-    </Router>
-  );
-}
+export default App;

@@ -9,19 +9,19 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
-import log from 'electron-log';
+import { app, BrowserWindow, shell, ipcMain, screen } from 'electron';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 
-class AppUpdater {
-  constructor() {
-    log.transports.file.level = 'info';
-    autoUpdater.logger = log;
-    autoUpdater.checkForUpdatesAndNotify();
-  }
-}
+// import { autoUpdater } from 'electron-updater';
+// import log from 'electron-log';
+// class AppUpdater {
+//   constructor() {
+//     log.transports.file.level = 'info';
+//     autoUpdater.logger = log;
+//     autoUpdater.checkForUpdatesAndNotify();
+//   }
+// }
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -69,15 +69,20 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths);
   };
 
+  // Get full desktop dimensions from the primary display.
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 728,
+    width,
+    height,
     icon: getAssetPath('icon.png'),
     webPreferences: {
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
         : path.join(__dirname, '../../.erb/dll/preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
@@ -91,6 +96,9 @@ const createWindow = async () => {
       mainWindow.minimize();
     } else {
       mainWindow.show();
+      mainWindow.webContents.openDevTools({
+        mode: 'detach',
+      });
     }
   });
 
@@ -108,13 +116,13 @@ const createWindow = async () => {
   });
 
   // Remove this if your app does not use auto updates
-  // eslint-disable-next-line
-  new AppUpdater();
+  // new AppUpdater();
 };
 
 /**
  * Add event listeners...
  */
+app.commandLine.appendSwitch('disable-autofill');
 
 app.on('window-all-closed', () => {
   // Respect the OSX convention of having the application in memory even
