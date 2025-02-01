@@ -3,11 +3,17 @@
  *        See https://github.com/webpack-contrib/sass-loader#imports
  */
 
+/* Reset margin and padding for a full viewport layout */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
 
 body {
   position: relative;
   color: white;
-  height: 100vh;
   background: linear-gradient(
     200.96deg,
     #fedc2a -29.09%,
@@ -21,44 +27,100 @@ body {
   align-items: center;
 }
 
-button {
+/* The app-container fills the entire viewport */
+.app-container {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Two equally sized panels */
+.left-panel,
+.right-panel {
+  flex: 1;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Left panel split vertically into two sections */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tool button container: fixed height (or using natural size)
+   and horizontal layout for buttons/input */
+.tool-button-container {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  box-sizing: border-box;
+}
+
+/* Pdf viewer container takes remaining space */
+.pdf-viewer-container {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+/* Style the canvas to always fill its container while respecting aspect ratio */
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  margin: 0;
+}
+
+/* Canvas placeholder styling */
+.canvas-placeholder {
+  height: 100%;
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  margin: 0;
+}
+
+/* Basic button and file-input styles */
+button,
+.file-input {
   background-color: white;
-  padding: 10px 20px;
-  border-radius: 10px;
+  padding: 2px 4px;
+  border-radius: 2px;
   border: none;
   appearance: none;
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   box-shadow: 0px 8px 28px -6px rgba(24, 39, 75, 0.12),
-    0px 18px 88px -4px rgba(24, 39, 75, 0.14);
-  transition: all ease-in 0.1s;
+              0px 18px 88px -4px rgba(24, 39, 75, 0.14);
+  transition: all 0.1s ease-in;
   cursor: pointer;
   opacity: 0.9;
 }
 
-button:hover {
+button:hover,
+.file-input:hover {
   transform: scale(1.05);
   opacity: 1;
 }
 
+/* Remove default list and anchor styling */
 li {
   list-style: none;
 }
 
 a {
   text-decoration: none;
-  height: fit-content;
-  width: fit-content;
   margin: 10px;
 }
 
 a:hover {
   opacity: 1;
-  text-decoration: none;
-}
-
-.Hello {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 20px 0;
 }
