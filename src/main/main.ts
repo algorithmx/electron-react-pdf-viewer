@@ -23,13 +23,15 @@ import { resolveHtmlPath } from './util';
 //   }
 // }
 
-let mainWindow: BrowserWindow | null = null;
-
+// here is the place to add code before the window is created
+// ipcMain as an example
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
 });
+
+let mainWindow: BrowserWindow | null = null;
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
@@ -77,6 +79,7 @@ const createWindow = async () => {
     width,
     height,
     icon: getAssetPath('icon.png'),
+    // preload scripts
     webPreferences: {
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
@@ -106,6 +109,7 @@ const createWindow = async () => {
     mainWindow = null;
   });
 
+  // menu
   const menuBuilder = new MenuBuilder(mainWindow);
   menuBuilder.buildMenu();
 
