@@ -23,20 +23,28 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     scaleRef,
     scrollOffset,
     visibleHeight: dimensions.height,
+    containerWidth: dimensions.width,
     setTotalHeight,
   });
 
   useLayoutEffect(() => {
-    const element = containerRef.current;
-    if (element) {
-      const { clientWidth, clientHeight } = element;
-      setDimensions((prev) => {
-        if (prev.width !== clientWidth || prev.height !== clientHeight) {
-          return { width: clientWidth, height: clientHeight };
-        }
-        return prev;
-      });
-    }
+    const updateDimensions = () => {
+      const element = containerRef.current;
+      if (element) {
+        const { clientWidth, clientHeight } = element;
+        setDimensions((prev) => {
+          if (prev.width !== clientWidth || prev.height !== clientHeight) {
+            return { width: clientWidth, height: clientHeight };
+          }
+          return prev;
+        });
+      }
+    };
+
+    updateDimensions(); // initial measurement
+
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
   }, [containerRef]);
 
   const maxScroll =

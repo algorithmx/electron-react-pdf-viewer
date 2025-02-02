@@ -38,7 +38,8 @@ body {
 /* Two equally sized panels */
 .left-panel,
 .right-panel {
-  flex: 1;
+  flex: 0 0 50%;
+  max-width: 50%;
   height: 100%;
   box-sizing: border-box;
 }

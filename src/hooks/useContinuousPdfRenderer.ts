@@ -10,6 +10,7 @@ interface UseContinuousPdfRendererProps {
   scrollOffset: number;
   // Visible height of the container (in CSS pixels)
   visibleHeight: number;
+  containerWidth: number; // added for responsiveness
   setTotalHeight: (height: number) => void;
 }
 
@@ -20,6 +21,7 @@ export default function useContinuousPdfRenderer({
   scaleRef,
   scrollOffset,
   visibleHeight,
+  containerWidth, // received from Viewer
   setTotalHeight,
 }: UseContinuousPdfRendererProps): void {
   // Cache for rendered pages: key = page number, value = offscreen canvas.
@@ -31,7 +33,7 @@ export default function useContinuousPdfRenderer({
   // Dummy state to force re-composition when async rendering finishes.
   const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
 
-  // Compute layout (scale, per-page viewports and cumulative y-offsets) when pdfDoc changes.
+  // Compute layout (scale, per-page viewports and cumulative y-offsets) when pdfDoc or containerWidth changes.
   useEffect(() => {
     if (!pdfDoc) return;
     let isCancelled = false;
@@ -98,28 +100,21 @@ export default function useContinuousPdfRenderer({
     }
 
     async function computeLayout() {
-      // Use the first page to determine the scale based on the canvas's width.
+      // Use the first page to determine the base viewport.
       const firstPage = await pdfDoc!.getPage(1);
       const baseViewport = firstPage.getViewport({ scale: 1 });
-      // Determine the width from the canvas; fallback to page width if canvas is not available.
-      const canvas = canvasRef.current;
-      const containerWidth = canvas ? canvas.clientWidth : baseViewport.width;
-      // Calculate the scale – either use the previously set scale or compute from canvas width.
-      const scale =
-        scaleRef.current !== undefined
-          ? scaleRef.current
-          : containerWidth / baseViewport.width;
-      if (scaleRef.current === undefined) {
-        scaleRef.current = scale;
-      }
+      // Recalculate the scale based on the current containerWidth.
+      const scale = containerWidth / baseViewport.width;
+      scaleRef.current = scale;
+
       let totalHeightLocal = 0;
       const pagesDataLocal: Array<{
         viewport: pdfjsLib.PageViewport;
         yOffset: number;
       }> = [];
-      // Clear the previous cache when a new PDF is loaded.
+      // Clear the previous cache when a new PDF is loaded or dimensions change.
       pageCacheRef.current.clear();
-      // Process each page to compute its viewport details and cumulative y-offset.
+      // Compute viewport details and cumulative y-offset for each page.
       for (let i = 1; i <= pdfDoc!.numPages; i += 1) {
         // eslint-disable-next-line no-await-in-loop
         const page = await pdfDoc!.getPage(i);
@@ -128,17 +123,13 @@ export default function useContinuousPdfRenderer({
         totalHeightLocal += viewport.height;
       }
       pagesDataRef.current = pagesDataLocal;
-      // Report the total height of the PDF (in CSS pixels) via the callback.
       setTotalHeight(totalHeightLocal);
-      // Force a re-render so the canvas is updated immediately.
       setRerenderFlag((prev) => !prev);
-
-      // Start background pre-rendering: go through all pages non-blocking.
       schedulePreRendering(1);
     }
     computeLayout();
     isCancelled = true;
-  }, [canvasRef, pdfDoc, scaleRef, setTotalHeight]);
+  }, [pdfDoc, containerWidth, setTotalHeight, scaleRef]);
 
   // Composite visible pages onto a canvas sized to the container.
   useEffect(() => {
@@ -152,10 +143,10 @@ export default function useContinuousPdfRenderer({
     // Use device pixel ratio for high DPI displays.
     const devicePixelRatio = window.devicePixelRatio || 1;
     // Adjust canvas dimensions according to the canvas's size and device pixel ratio.
-    const containerWidth = container.clientWidth;
-    canvas.width = Math.floor(containerWidth * devicePixelRatio);
+    const containerWidthLocal = container.clientWidth;
+    canvas.width = Math.floor(containerWidthLocal * devicePixelRatio);
     canvas.height = Math.floor(visibleHeight * devicePixelRatio);
-    canvas.style.width = `${containerWidth}px`;
+    canvas.style.width = `${containerWidthLocal}px`;
     canvas.style.height = `${visibleHeight}px`;
     ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     // Clear previous contents before re-drawing.
