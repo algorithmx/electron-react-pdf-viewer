@@ -42,7 +42,6 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     };
 
     updateDimensions(); // initial measurement
-
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, [containerRef]);
@@ -60,16 +59,95 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     }
   };
 
-  // eslint-disable-next-line no-console
-  console.log('[Viewer] scrollOffset', scrollOffset);
+  // --- New: Rectangle selection state and event handlers ---
+  const [selecting, setSelecting] = useState(false);
+  const [selectionRect, setSelectionRect] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+
+  const handleMouseDown = (
+    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+  ) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    setStartPos({ x, y });
+    setSelectionRect({ x, y, width: 0, height: 0 });
+    setSelecting(true);
+  };
+
+  const handleMouseMove = (
+    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+  ) => {
+    if (!selecting || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const currX = clientX - rect.left;
+    const currY = clientY - rect.top;
+    const x = Math.min(startPos.x, currX);
+    const y = Math.min(startPos.y, currY);
+    const width = Math.abs(currX - startPos.x);
+    const height = Math.abs(currY - startPos.y);
+    setSelectionRect({ x, y, width, height });
+  };
+
+  const handleMouseUp = (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+  ) => {
+    if (!selecting) return;
+    setSelecting(false);
+    // eslint-disable-next-line no-console
+    console.log('Selected area:', selectionRect);
+    setTimeout(
+      () => setSelectionRect({ x: 0, y: 0, width: 0, height: 0 }),
+      100,
+    );
+  };
+  // ---------------------------------------------------------
 
   return (
     <div className="pdf-viewer-container continuous-viewer">
-      <div className="canvas-container" ref={containerRef}>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <div
+        className="canvas-container"
+        ref={containerRef}
+        role="region"
+        aria-label="PDF viewer"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onTouchStart={handleMouseDown}
+        onTouchMove={handleMouseMove}
+        onTouchEnd={handleMouseUp}
+        onWheel={handleWheel}
+      >
         {pdfDoc ? (
-          <canvas ref={canvasRef} onWheel={handleWheel} />
+          <canvas ref={canvasRef} />
         ) : (
           <div className="canvas-placeholder">No PDF Loaded</div>
+        )}
+        {selecting && (
+          <div
+            style={{
+              position: 'absolute',
+              left: selectionRect.x,
+              top: selectionRect.y,
+              width: selectionRect.width,
+              height: selectionRect.height,
+              border: '2px dashed blue',
+              backgroundColor: 'rgba(0, 0, 255, 0.2)',
+              pointerEvents: 'none',
+            }}
+          />
         )}
       </div>
       <DebouncedSlider
