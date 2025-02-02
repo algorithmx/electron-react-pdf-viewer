@@ -4,6 +4,7 @@ import {
   shell,
   BrowserWindow,
   MenuItemConstructorOptions,
+  dialog,
 } from 'electron';
 
 interface DarwinMenuItemConstructorOptions extends MenuItemConstructorOptions {
@@ -200,12 +201,24 @@ export default class MenuBuilder {
           {
             label: '&Open',
             accelerator: 'Ctrl+O',
+            click: async () => {
+              const result = await dialog.showOpenDialog(this.mainWindow, {
+                properties: ['openFile'],
+                filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+              });
+              if (!result.canceled && result.filePaths.length > 0) {
+                this.mainWindow.webContents.send(
+                  'open-file',
+                  `file://${result.filePaths[0]}`,
+                );
+              }
+            },
           },
           {
             label: '&Close',
             accelerator: 'Ctrl+W',
             click: () => {
-              this.mainWindow.close();
+              this.mainWindow.webContents.send('close-file');
             },
           },
         ],

@@ -1,17 +1,15 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
-import FileSelector from './FileSelector';
 import useContinuousPdfRenderer from '../hooks/useContinuousPdfRenderer';
 import DebouncedSlider from '../components/DebouncedSlider';
 
 interface ViewerProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy | null;
   scaleRef: React.MutableRefObject<number | undefined>;
-  setFile: (file: string) => void;
 }
 
-function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
+function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
   const [totalHeight, setTotalHeight] = useState<number>(0);
   const [scrollOffset, setScrollOffset] = useState<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -58,27 +56,22 @@ function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
   console.log('[Viewer] scrollOffset', scrollOffset);
 
   return (
-    <>
-      <div className="tool-button-container">
-        <FileSelector onFileSelected={setFile} />
+    <div className="pdf-viewer-container continuous-viewer">
+      <div className="canvas-container" ref={containerRef}>
+        {pdfDoc ? (
+          <canvas ref={canvasRef} onWheel={handleWheel} />
+        ) : (
+          <div className="canvas-placeholder">No PDF Loaded</div>
+        )}
       </div>
-      <div className="pdf-viewer-container continuous-viewer">
-        <div className="canvas-container" ref={containerRef}>
-          {pdfDoc ? (
-            <canvas ref={canvasRef} onWheel={handleWheel} />
-          ) : (
-            <div className="canvas-placeholder">No PDF Loaded</div>
-          )}
-        </div>
-        <DebouncedSlider
-          value={scrollOffset}
-          min={0}
-          max={maxScroll}
-          onChangeFinal={setScrollOffset}
-          onMouseWheelScroll={handleWheel}
-        />
-      </div>
-    </>
+      <DebouncedSlider
+        value={scrollOffset}
+        min={0}
+        max={maxScroll}
+        onChangeFinal={setScrollOffset}
+        onMouseWheelScroll={handleWheel}
+      />
+    </div>
   );
 }
 

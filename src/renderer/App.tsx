@@ -12,6 +12,20 @@ function App() {
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const scaleRef = useRef<number>(); // Persist the scale across pages
 
+  useEffect(() => {
+    const onOpenFile = (...args: unknown[]) => {
+      const filePath = args[0] as string;
+      setFile(filePath);
+    };
+    const removeListener = window.electron.ipcRenderer.on(
+      'open-file',
+      onOpenFile,
+    );
+    return () => {
+      removeListener();
+    };
+  }, []);
+
   // Load PDF document when file changes.
   useEffect(() => {
     if (!file) return;
@@ -35,10 +49,24 @@ function App() {
       });
   }, [file]);
 
+  useEffect(() => {
+    const onCloseFile = () => {
+      setFile(undefined);
+      setPdfDoc(null);
+    };
+    const removeListener = window.electron.ipcRenderer.on(
+      'close-file',
+      onCloseFile,
+    );
+    return () => {
+      removeListener();
+    };
+  }, []);
+
   return (
     <div className="app-container">
       <div className="left-panel">
-        <Viewer pdfDoc={pdfDoc} scaleRef={scaleRef} setFile={setFile} />
+        <Viewer pdfDoc={pdfDoc} scaleRef={scaleRef} />
       </div>
       <div className="right-panel">
         <div>
