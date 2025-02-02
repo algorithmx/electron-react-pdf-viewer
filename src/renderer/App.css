@@ -35,17 +35,18 @@ body {
   width: 100vw;
 }
 
-/* Two equally sized panels */
-.left-panel,
 .right-panel {
-  flex: 0 0 50%;
-  max-width: 50%;
+  flex: 0 0 48%;
+  max-width: 48%;
   height: 100%;
   box-sizing: border-box;
 }
 
-/* Left panel split vertically into two sections */
 .left-panel {
+  flex: 0 0 48%;
+  max-width: 48%;
+  height: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
 }
