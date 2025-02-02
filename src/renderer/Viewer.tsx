@@ -1,49 +1,76 @@
-import React from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import FileSelector from './FileSelector';
-import PaginationControls from './PaginationControls';
-import usePdfRenderer from '../hooks/usePdfRenderer';
+import useContinuousPdfRenderer from '../hooks/useContinuousPdfRenderer';
+import DebouncedSlider from '../components/DebouncedSlider';
 
 interface ViewerProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy | null;
-  pageNumber: number;
-  pageCount: number;
-  canvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   scaleRef: React.MutableRefObject<number | undefined>;
-  setPageNumber: (page: number) => void;
   setFile: (file: string) => void;
 }
 
-function Viewer({
-  pdfDoc,
-  pageNumber,
-  pageCount,
-  canvasRef,
-  scaleRef,
-  setPageNumber,
-  setFile,
-}: ViewerProps): React.ReactNode {
-  // Use the custom hook to render the PDF page
-  usePdfRenderer({ pdfDoc, pageNumber, canvasRef, scaleRef });
+function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
+  const [totalHeight, setTotalHeight] = useState<number>(0);
+  const [scrollOffset, setScrollOffset] = useState<number>(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  useContinuousPdfRenderer({
+    pdfDoc,
+    containerRef,
+    canvasRef,
+    scaleRef,
+    scrollOffset,
+    visibleHeight: dimensions.height,
+    setTotalHeight,
+  });
+
+  useLayoutEffect(() => {
+    const element = containerRef.current;
+    if (element) {
+      const { clientWidth, clientHeight } = element;
+      setDimensions((prev) => {
+        if (prev.width !== clientWidth || prev.height !== clientHeight) {
+          return { width: clientWidth, height: clientHeight };
+        }
+        return prev;
+      });
+    }
+  }, [containerRef]);
+
+  // eslint-disable-next-line no-console
+  console.log('[Viewer] scrollOffset', scrollOffset);
 
   return (
     <>
       <div className="tool-button-container">
         <FileSelector onFileSelected={setFile} />
-        <PaginationControls
-          pageNumber={pageNumber}
-          pageCount={pageCount}
-          onPrevious={() => setPageNumber(pageNumber - 1)}
-          onNext={() => setPageNumber(pageNumber + 1)}
-        />
       </div>
-      <div className="pdf-viewer-container">
-        {pdfDoc ? (
-          <canvas ref={canvasRef} />
-        ) : (
-          <div className="canvas-placeholder">No PDF Loaded</div>
-        )}
+      <div className="pdf-viewer-container continuous-viewer">
+        <div className="canvas-container" ref={containerRef}>
+          {pdfDoc ? (
+            <canvas ref={canvasRef} />
+          ) : (
+            <div className="canvas-placeholder">No PDF Loaded</div>
+          )}
+        </div>
+        {(() => {
+          const maxScroll =
+            totalHeight - dimensions.height > 0
+              ? Math.floor(totalHeight - dimensions.height)
+              : 0;
+          return (
+            <DebouncedSlider
+              value={0}
+              min={0}
+              max={maxScroll}
+              onChangeFinal={setScrollOffset}
+            />
+          );
+        })()}
       </div>
     </>
   );

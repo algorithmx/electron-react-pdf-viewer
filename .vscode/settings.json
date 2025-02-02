@@ -4,7 +4,7 @@
     ".prettierrc": "jsonc",
     ".eslintignore": "ignore"
   },
-  
+
   "eslint.validate": [
     "javascript",
     "javascriptreact",
@@ -26,5 +26,18 @@
     "test/**/__snapshots__": true,
     "package-lock.json": true,
     "*.{css,sass,scss}.d.ts": true
-  }
+  },
+
+  "betterStatusBar.commands": [
+    {
+      "id": "1",
+      "label": "npm package",
+      "command": "ELECTRON_MIRROR=\"https://cdn.npmmirror.com/binaries/electron/\" npm run package"
+    },
+    {
+      "id": "2",
+      "label": "run app",
+      "command": "chmod +x release/build/ElectronReact-4.6.0.AppImage && ./release/build/ElectronReact-4.6.0.AppImage --no-sandbox"
+    }
+  ]
 }

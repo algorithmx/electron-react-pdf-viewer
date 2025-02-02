@@ -65,7 +65,7 @@ body {
   position: relative;
   width: 100%;
   box-sizing: border-box;
-  overflow: auto;
+  overflow: hidden;
 }
 
 /* Style the canvas to always fill its container while respecting aspect ratio */
@@ -123,4 +123,29 @@ a {
 
 a:hover {
   opacity: 1;
+}
+
+/* Container combining the continuous canvas and the vertical slider */
+.continuous-viewer {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+}
+
+/* The canvas container clips the tall canvas to the visible area */
+.canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Vertical slider styling */
+.pagination-slider {
+  width: 15px;
+  margin: 0;
+  -webkit-appearance: slider-vertical; /* For Chrome, Safari, Opera */
+  writing-mode: bt-lr; /* For Firefox vertical slider */
+  height: 100%;
+  transform: scaleY(-1);
 }

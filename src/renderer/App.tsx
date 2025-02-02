@@ -10,9 +10,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 function App() {
   const [file, setFile] = useState<string | undefined>();
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageCount, setPageCount] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const scaleRef = useRef<number>(); // Persist the scale across pages
 
   // Load PDF document when file changes.
@@ -25,7 +22,10 @@ function App() {
       .getDocument(file)
       .promise.then((pdf) => {
         setPdfDoc(pdf);
-        setPageCount(pdf.numPages);
+        if (pdf) {
+          // eslint-disable-next-line no-console
+          console.log('PDF loaded.');
+        }
         return null;
       })
       .catch((error) => {
@@ -38,17 +38,8 @@ function App() {
   return (
     <div className="app-container">
       <div className="left-panel">
-        <Viewer
-          pdfDoc={pdfDoc!}
-          pageNumber={pageNumber}
-          pageCount={pageCount}
-          canvasRef={canvasRef}
-          scaleRef={scaleRef}
-          setPageNumber={setPageNumber}
-          setFile={setFile}
-        />
+        <Viewer pdfDoc={pdfDoc} scaleRef={scaleRef} setFile={setFile} />
       </div>
-
       <div className="right-panel">
         <div>
           <h1>PDF Util</h1>
