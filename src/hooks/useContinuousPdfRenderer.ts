@@ -34,6 +34,69 @@ export default function useContinuousPdfRenderer({
   // Compute layout (scale, per-page viewports and cumulative y-offsets) when pdfDoc changes.
   useEffect(() => {
     if (!pdfDoc) return;
+    let isCancelled = false;
+
+    // Use requestIdleCallback if available, else fallback to setTimeout.
+    function requestIdleCallbackShim(
+      callback: (deadline: {
+        timeRemaining: () => number;
+        didTimeout: boolean;
+      }) => void,
+    ): number {
+      if (window.requestIdleCallback) {
+        return window.requestIdleCallback(callback);
+      }
+      return window.setTimeout(() => {
+        callback({ didTimeout: false, timeRemaining: () => 50 });
+      }, 50);
+    }
+
+    // Schedule background pre-rendering of pages one at a time.
+    function schedulePreRendering(pageNumber: number): void {
+      if (isCancelled || pageNumber > pdfDoc!.numPages) return;
+      if (!pageCacheRef.current.has(pageNumber)) {
+        // eslint-disable-next-line promise/catch-or-return
+        pdfDoc!
+          .getPage(pageNumber)
+          .then((page) => {
+            const pageData = pagesDataRef.current[pageNumber - 1];
+            const { viewport } = pageData;
+            const outputScale = window.devicePixelRatio || 1;
+            const renderCanvas = document.createElement('canvas');
+            renderCanvas.width = Math.floor(viewport.width * outputScale);
+            renderCanvas.height = Math.floor(viewport.height * outputScale);
+            renderCanvas.style.width = `${Math.floor(viewport.width)}px`;
+            renderCanvas.style.height = `${Math.floor(viewport.height)}px`;
+            const renderCtx = renderCanvas.getContext('2d');
+            if (!renderCtx) {
+              throw new Error('No canvas context available');
+            }
+            renderCtx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+            // Render the page offscreen.
+            return page
+              .render({ canvasContext: renderCtx, viewport })
+              .promise.then(() => {
+                pageCacheRef.current.set(pageNumber, renderCanvas);
+                setRerenderFlag((prev) => !prev);
+                return renderCanvas;
+              });
+          })
+          .catch((error) => {
+            // eslint-disable-next-line no-console
+            console.error('Error pre-rendering page:', error);
+          })
+          .finally(() => {
+            requestIdleCallbackShim(() => {
+              schedulePreRendering(pageNumber + 1);
+            });
+          });
+      } else {
+        requestIdleCallbackShim(() => {
+          schedulePreRendering(pageNumber + 1);
+        });
+      }
+    }
+
     async function computeLayout() {
       // Use the first page to determine the scale based on the canvas's width.
       const firstPage = await pdfDoc!.getPage(1);
@@ -41,7 +104,7 @@ export default function useContinuousPdfRenderer({
       // Determine the width from the canvas; fallback to page width if canvas is not available.
       const canvas = canvasRef.current;
       const containerWidth = canvas ? canvas.clientWidth : baseViewport.width;
-      // Calculate the scale - either use the previously set scale or compute from canvas width.
+      // Calculate the scale – either use the previously set scale or compute from canvas width.
       const scale =
         scaleRef.current !== undefined
           ? scaleRef.current
@@ -69,10 +132,13 @@ export default function useContinuousPdfRenderer({
       setTotalHeight(totalHeightLocal);
       // Force a re-render so the canvas is updated immediately.
       setRerenderFlag((prev) => !prev);
+
+      // Start background pre-rendering: go through all pages non-blocking.
+      schedulePreRendering(1);
     }
     computeLayout();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfDoc, scaleRef, setTotalHeight]);
+    isCancelled = true;
+  }, [canvasRef, pdfDoc, scaleRef, setTotalHeight]);
 
   // Composite visible pages onto a canvas sized to the container.
   useEffect(() => {
