@@ -6,6 +6,7 @@ interface DebouncedSliderProps {
   max: number;
   step?: number;
   onChangeFinal: (newValue: number) => void;
+  onMouseWheelScroll: (e: React.WheelEvent<HTMLInputElement>) => void;
 }
 
 function DebouncedSlider({
@@ -14,8 +15,10 @@ function DebouncedSlider({
   max,
   step,
   onChangeFinal,
+  onMouseWheelScroll,
 }: DebouncedSliderProps) {
   const sliderStep = step ?? 1;
+  const delta = 1;
   const [tempValue, setTempValue] = useState<number>(value);
   const [dragging, setDragging] = useState<boolean>(false);
 
@@ -43,8 +46,19 @@ function DebouncedSlider({
     }
   };
 
-  // eslint-disable-next-line no-console
-  console.log('[DebouncedSlider] tempValue: ', tempValue);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'PageUp') {
+      setTempValue(Math.min(tempValue + delta, max));
+      onChangeFinal(tempValue);
+    }
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'PageDown') {
+      setTempValue(Math.max(tempValue - delta, min));
+      onChangeFinal(tempValue);
+    }
+  };
 
   return (
     <input
@@ -60,6 +74,9 @@ function DebouncedSlider({
       onTouchStart={handleDragStart}
       onTouchEnd={handleDragEnd}
       onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
+      onWheel={onMouseWheelScroll}
     />
   );
 }

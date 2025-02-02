@@ -41,6 +41,19 @@ function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
     }
   }, [containerRef]);
 
+  const maxScroll =
+    totalHeight - dimensions.height > 0
+      ? Math.floor(totalHeight - dimensions.height)
+      : 0;
+
+  const handleWheel = (e: React.WheelEvent<HTMLElement>) => {
+    if (e.deltaY > 0) {
+      setScrollOffset(Math.min(scrollOffset + e.deltaY, maxScroll));
+    } else {
+      setScrollOffset(Math.max(scrollOffset + e.deltaY, 0));
+    }
+  };
+
   // eslint-disable-next-line no-console
   console.log('[Viewer] scrollOffset', scrollOffset);
 
@@ -52,25 +65,18 @@ function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
       <div className="pdf-viewer-container continuous-viewer">
         <div className="canvas-container" ref={containerRef}>
           {pdfDoc ? (
-            <canvas ref={canvasRef} />
+            <canvas ref={canvasRef} onWheel={handleWheel} />
           ) : (
             <div className="canvas-placeholder">No PDF Loaded</div>
           )}
         </div>
-        {(() => {
-          const maxScroll =
-            totalHeight - dimensions.height > 0
-              ? Math.floor(totalHeight - dimensions.height)
-              : 0;
-          return (
-            <DebouncedSlider
-              value={0}
-              min={0}
-              max={maxScroll}
-              onChangeFinal={setScrollOffset}
-            />
-          );
-        })()}
+        <DebouncedSlider
+          value={0}
+          min={0}
+          max={maxScroll}
+          onChangeFinal={setScrollOffset}
+          onMouseWheelScroll={handleWheel}
+        />
       </div>
     </>
   );
