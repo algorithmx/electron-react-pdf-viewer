@@ -71,7 +71,7 @@ function Viewer({ pdfDoc, scaleRef, setFile }: ViewerProps): React.ReactNode {
           )}
         </div>
         <DebouncedSlider
-          value={0}
+          value={scrollOffset}
           min={0}
           max={maxScroll}
           onChangeFinal={setScrollOffset}

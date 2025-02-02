@@ -1,4 +1,4 @@
-import React, { useState, ChangeEvent } from 'react';
+import React, { useState, useEffect, ChangeEvent } from 'react';
 
 interface DebouncedSliderProps {
   value: number;
@@ -21,6 +21,13 @@ function DebouncedSlider({
   const delta = 1;
   const [tempValue, setTempValue] = useState<number>(value);
   const [dragging, setDragging] = useState<boolean>(false);
+
+  // Sync local state with updated value prop when not dragging.
+  useEffect(() => {
+    if (!dragging) {
+      setTempValue(value);
+    }
+  }, [value, dragging]);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setTempValue(Math.floor(Number(e.target.value)));
