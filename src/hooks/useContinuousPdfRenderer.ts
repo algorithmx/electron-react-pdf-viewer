@@ -23,25 +23,67 @@ function calculateStartEnd(
   visibleEnd: number,
   Q: number = 3,
 ) {
-  // Compute currently visible page indices.
   let firstVisibleIndex = Number.POSITIVE_INFINITY;
   let lastVisibleIndex = Number.NEGATIVE_INFINITY;
-  x.forEach((pageData, index) => {
-    const pageTop = pageData.yOffset;
-    const pageBottom = pageTop + pageData.viewport.height;
-    if (pageBottom >= visibleStart && pageTop <= visibleEnd) {
-      firstVisibleIndex = Math.min(firstVisibleIndex, index);
-      lastVisibleIndex = Math.max(lastVisibleIndex, index);
+
+  // Find the first visible page.
+  for (let i = 0; i < x.length; i += 1) {
+    const { viewport, yOffset } = x[i];
+    const pageBottom = yOffset + viewport.height;
+    if (pageBottom >= visibleStart && yOffset <= visibleEnd) {
+      firstVisibleIndex = i;
+      break;
     }
-  });
+  }
+
+  // Find the last visible page.
+  for (let i = x.length - 1; i >= 0; i -= 1) {
+    const { viewport, yOffset } = x[i];
+    const pageBottom = yOffset + viewport.height;
+    if (pageBottom >= visibleStart && yOffset <= visibleEnd) {
+      lastVisibleIndex = i;
+      break;
+    }
+  }
+
   if (firstVisibleIndex === Number.POSITIVE_INFINITY) {
     firstVisibleIndex = 0;
     lastVisibleIndex = 0;
   }
-  // Extend caching range 10 pages beyond the current visible pages.
+
   const cacheStart = Math.max(0, firstVisibleIndex - Q);
   const cacheEnd = Math.min(N - 1, lastVisibleIndex + Q);
   return [cacheStart, cacheEnd];
+}
+
+// Helper function to draw a portion of a page from an offscreen canvas.
+function drawPageSection(
+  renderCanvas: HTMLCanvasElement,
+  pageData: { viewport: pdfjsLib.PageViewport; yOffset: number },
+  visibleStart: number,
+  visibleEnd: number,
+  ctx: CanvasRenderingContext2D,
+  outputScale: number,
+) {
+  const { viewport, yOffset } = pageData;
+  const pageTop = yOffset;
+  const pageBottom = pageTop + viewport.height;
+  const clipTop = Math.max(pageTop, visibleStart);
+  const clipBottom = Math.min(pageBottom, visibleEnd);
+  const srcY = (clipTop - pageTop) * outputScale;
+  const srcHeight = (clipBottom - clipTop) * outputScale;
+  const destY = clipTop - visibleStart;
+  ctx.drawImage(
+    renderCanvas,
+    0,
+    srcY,
+    renderCanvas.width,
+    srcHeight,
+    0,
+    destY,
+    renderCanvas.width / outputScale,
+    srcHeight / outputScale,
+  );
 }
 
 // Helper function to process and draw (or cache) a page.
@@ -59,92 +101,60 @@ function processPage(
 ) {
   if (index < cacheStart || index > cacheEnd) return;
   const pageNumber = index + 1;
-  const pageTop = pageData.yOffset;
-  const pageBottom = pageTop + pageData.viewport.height;
-  const offscreenCanvas = pageCacheRef.current.get(pageNumber);
-  const isPageVisible = pageBottom >= visibleStart && pageTop <= visibleEnd;
+  const { viewport, yOffset } = pageData;
+  const pageBottom = yOffset + viewport.height;
+  const isPageVisible = pageBottom >= visibleStart && yOffset <= visibleEnd;
+  const outputScale = window.devicePixelRatio || 1;
+  const cachedCanvas = pageCacheRef.current.get(pageNumber);
 
-  if (!offscreenCanvas) {
-    const renderPagePromise = pdfDoc!.getPage(pageNumber).then((page) => {
-      const { viewport } = pageData;
-      const outputScale = window.devicePixelRatio || 1;
-      const renderCanvas = document.createElement('canvas');
-      renderCanvas.width = Math.floor(viewport.width * outputScale);
-      renderCanvas.height = Math.floor(viewport.height * outputScale);
-      renderCanvas.style.width = `${Math.floor(viewport.width)}px`;
-      renderCanvas.style.height = `${Math.floor(viewport.height)}px`;
-      const renderCtx = renderCanvas.getContext('2d');
-      if (!renderCtx) {
-        throw new Error('No canvas context available');
-      }
-      renderCtx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
-      // Render the page on the offscreen canvas.
-      return page
-        .render({ canvasContext: renderCtx, viewport })
-        .promise.then(() => renderCanvas);
-    });
-
-    if (isPageVisible) {
-      // For visible pages, once rendered, draw immediately.
-      renderPagePromise
-        .then((renderCanvas) => {
-          pageCacheRef.current.set(pageNumber, renderCanvas);
-          const clipTop = Math.max(pageTop, visibleStart);
-          const clipBottom = Math.min(pageBottom, visibleEnd);
-          const srcY = (clipTop - pageTop) * devicePixelRatio;
-          const srcHeight = (clipBottom - clipTop) * devicePixelRatio;
-          const destY = clipTop - visibleStart;
-          ctx!.drawImage(
+  if (!cachedCanvas) {
+    pdfDoc
+      .getPage(pageNumber)
+      .then((page) => {
+        const renderCanvas = document.createElement('canvas');
+        renderCanvas.width = Math.floor(viewport.width * outputScale);
+        renderCanvas.height = Math.floor(viewport.height * outputScale);
+        renderCanvas.style.width = `${Math.floor(viewport.width)}px`;
+        renderCanvas.style.height = `${Math.floor(viewport.height)}px`;
+        const renderCtx = renderCanvas.getContext('2d');
+        if (!renderCtx) {
+          throw new Error('No canvas context available');
+        }
+        renderCtx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+        return page
+          .render({ canvasContext: renderCtx, viewport })
+          .promise.then(() => renderCanvas);
+      })
+      .then((renderCanvas) => {
+        pageCacheRef.current.set(pageNumber, renderCanvas);
+        if (isPageVisible) {
+          drawPageSection(
             renderCanvas,
-            0,
-            srcY,
-            renderCanvas.width,
-            srcHeight,
-            0,
-            destY,
-            renderCanvas.width / devicePixelRatio,
-            srcHeight / devicePixelRatio,
+            pageData,
+            visibleStart,
+            visibleEnd,
+            ctx,
+            outputScale,
           );
-          setRerenderFlag((prev: boolean) => !prev);
-          return renderCanvas;
-        })
-        .catch((error) => {
-          // eslint-disable-next-line no-console
-          console.error('Error loading PDF:', error);
-        });
-    } else {
-      // For non-visible pages, cache without immediate drawing.
-      renderPagePromise
-        .then((renderCanvas) => {
-          pageCacheRef.current.set(pageNumber, renderCanvas);
-          setRerenderFlag((prev: boolean) => !prev);
-          return renderCanvas;
-        })
-        .catch((error) => {
-          // eslint-disable-next-line no-console
-          console.error('Error loading PDF:', error);
-        });
-    }
+        }
+        setRerenderFlag((prev: boolean) => !prev);
+        return renderCanvas;
+      })
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error loading PDF:', error);
+      });
     return;
   }
 
-  // Only draw pages that intersect the visible area.
-  if (pageBottom < visibleStart || pageTop > visibleEnd) return;
-  const clipTop = Math.max(pageTop, visibleStart);
-  const clipBottom = Math.min(pageBottom, visibleEnd);
-  const srcY = (clipTop - pageTop) * devicePixelRatio;
-  const srcHeight = (clipBottom - clipTop) * devicePixelRatio;
-  const destY = clipTop - visibleStart;
-  ctx!.drawImage(
-    offscreenCanvas,
-    0,
-    srcY,
-    offscreenCanvas.width,
-    srcHeight,
-    0,
-    destY,
-    offscreenCanvas.width / devicePixelRatio,
-    srcHeight / devicePixelRatio,
+  if (!isPageVisible) return;
+  drawPageSection(
+    cachedCanvas,
+    pageData,
+    visibleStart,
+    visibleEnd,
+    ctx,
+    outputScale,
   );
 }
 
@@ -166,6 +176,8 @@ export default function useContinuousPdfRenderer({
   >([]);
   // Dummy state to force re-composition when async rendering finishes.
   const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
+  // Add a new ref for scheduling canvas rendering via requestAnimationFrame
+  const renderRafRef = useRef<number | null>(null);
 
   // Compute layout (scale, per-page viewports and cumulative y-offsets) when pdfDoc or containerWidth changes.
   useEffect(() => {
@@ -258,7 +270,7 @@ export default function useContinuousPdfRenderer({
       }
       pagesDataRef.current = pagesDataLocal;
       setTotalHeight(totalHeightLocal);
-      setRerenderFlag((prev) => !prev);
+      setRerenderFlag((prev: boolean) => !prev);
       schedulePreRendering(1);
     }
     computeLayout();
@@ -274,42 +286,51 @@ export default function useContinuousPdfRenderer({
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    // Use device pixel ratio for high DPI displays.
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    // Adjust canvas dimensions according to the canvas's size and device pixel ratio.
-    const containerWidthLocal = container.clientWidth;
-    canvas.width = Math.floor(containerWidthLocal * devicePixelRatio);
-    canvas.height = Math.floor(visibleHeight * devicePixelRatio);
-    canvas.style.width = `${containerWidthLocal}px`;
-    canvas.style.height = `${visibleHeight}px`;
-    ctx!.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    // Clear previous contents before re-drawing.
-    ctx!.clearRect(0, 0, canvas.width, canvas.height);
-    // Determine the visible section in the PDF's coordinate space.
-    const visibleStart = scrollOffset;
-    const visibleEnd = scrollOffset + visibleHeight;
-    const [cacheStart, cacheEnd] = calculateStartEnd(
-      pagesDataRef.current,
-      pdfDoc.numPages,
-      visibleStart,
-      visibleEnd,
-      3,
-    );
-    // Iterate over pages using the helper function.
-    pagesDataRef.current.forEach((pageData, index) =>
-      processPage(
-        pageData,
-        index,
+
+    // Cancel any pending frame to avoid redundant renders.
+    if (renderRafRef.current !== null) {
+      cancelAnimationFrame(renderRafRef.current);
+    }
+
+    renderRafRef.current = requestAnimationFrame(() => {
+      // Use device pixel ratio for high DPI displays.
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      // Adjust canvas dimensions according to the container and device pixel ratio.
+      const containerWidthLocal = container.clientWidth;
+      canvas.width = Math.floor(containerWidthLocal * devicePixelRatio);
+      canvas.height = Math.floor(visibleHeight * devicePixelRatio);
+      canvas.style.width = `${containerWidthLocal}px`;
+      canvas.style.height = `${visibleHeight}px`;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      // Clear previous contents before re-drawing.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Determine the visible section in the PDF's coordinate space.
+      const visibleStart = scrollOffset;
+      const visibleEnd = scrollOffset + visibleHeight;
+      const [cacheStart, cacheEnd] = calculateStartEnd(
+        pagesDataRef.current,
+        pdfDoc.numPages,
         visibleStart,
         visibleEnd,
-        cacheStart,
-        cacheEnd,
-        ctx,
-        pdfDoc,
-        pageCacheRef,
-        setRerenderFlag,
-      ),
-    );
+        3,
+      );
+      // Iterate over pages using the helper function.
+      pagesDataRef.current.forEach((pageData, index) =>
+        processPage(
+          pageData,
+          index,
+          visibleStart,
+          visibleEnd,
+          cacheStart,
+          cacheEnd,
+          ctx,
+          pdfDoc,
+          pageCacheRef,
+          setRerenderFlag,
+        ),
+      );
+      renderRafRef.current = null;
+    });
   }, [
     pdfDoc,
     containerRef,
