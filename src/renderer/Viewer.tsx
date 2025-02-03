@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import 'pdfjs-dist/legacy/web/pdf_viewer.css';
 import useContinuousPdfRenderer from '../hooks/useContinuousPdfRenderer';
@@ -16,6 +16,19 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textLayerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [selecting, setSelecting] = useState(false);
+  const [selectionRect, setSelectionRect] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+
+  // Reset scroll offset when a new PDF is loaded
+  useEffect(() => {
+    setScrollOffset(0);
+  }, [pdfDoc]);
 
   useContinuousPdfRenderer({
     pdfDoc,
@@ -61,16 +74,7 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     }
   };
 
-  // --- New: Rectangle selection state and event handlers ---
-  const [selecting, setSelecting] = useState(false);
-  const [selectionRect, setSelectionRect] = useState({
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  });
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-
+  // --- Rectangle selection state and event handlers ---
   const handleMouseDown = (
     e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
   ) => {
@@ -114,6 +118,7 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
       100,
     );
   };
+  // --- End of rectangle selection state and event handlers ---
 
   return (
     <div className="pdf-viewer-container continuous-viewer">
