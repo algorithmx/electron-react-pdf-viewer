@@ -1,6 +1,6 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import 'pdfjs-dist/web/pdf_viewer.css';
+import 'pdfjs-dist/legacy/web/pdf_viewer.css';
 import useContinuousPdfRenderer from '../hooks/useContinuousPdfRenderer';
 import DebouncedSlider from '../components/DebouncedSlider';
 
@@ -14,6 +14,7 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
   const [scrollOffset, setScrollOffset] = useState<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useContinuousPdfRenderer({
@@ -25,6 +26,7 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     visibleHeight: dimensions.height,
     containerWidth: dimensions.width,
     setTotalHeight,
+    textLayerRef,
   });
 
   useLayoutEffect(() => {
@@ -112,7 +114,6 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
       100,
     );
   };
-  // ---------------------------------------------------------
 
   return (
     <div className="pdf-viewer-container continuous-viewer">
@@ -122,16 +123,29 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
         ref={containerRef}
         role="region"
         aria-label="PDF viewer"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onTouchStart={handleMouseDown}
-        onTouchMove={handleMouseMove}
-        onTouchEnd={handleMouseUp}
+        style={{ position: 'relative' }}
         onWheel={handleWheel}
+        // onMouseDown={handleMouseDown}
+        // onMouseMove={handleMouseMove}
+        // onMouseUp={handleMouseUp}
       >
         {pdfDoc ? (
-          <canvas ref={canvasRef} />
+          <>
+            <canvas ref={canvasRef} />
+            <div
+              ref={textLayerRef}
+              className="pdf-text-layer"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                pointerEvents: 'all',
+                userSelect: 'text',
+              }}
+            />
+          </>
         ) : (
           <div className="canvas-placeholder">No PDF Loaded</div>
         )}
@@ -145,7 +159,8 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
               height: selectionRect.height,
               border: '2px dashed blue',
               backgroundColor: 'rgba(0, 0, 255, 0.2)',
-              pointerEvents: 'none',
+              pointerEvents: 'all',
+              userSelect: 'text',
             }}
           />
         )}
