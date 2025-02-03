@@ -277,6 +277,14 @@ export default function useContinuousPdfRenderer({
   const pagesDataRef = useRef<
     Array<{ viewport: pdfjsLib.PageViewport; yOffset: number }>
   >([]);
+
+  // New effect: clear caches whenever pdfDoc changes (or becomes null)
+  useEffect(() => {
+    pageCanvasCacheRef.current.clear();
+    pageTextLayerCacheRef.current.clear();
+    pagesDataRef.current = [];
+  }, [pdfDoc]);
+
   // Dummy state to force re-composition when async rendering finishes.
   const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
   // Add a new ref for scheduling canvas rendering via requestAnimationFrame
@@ -407,7 +415,8 @@ export default function useContinuousPdfRenderer({
           // eslint-disable-next-line no-continue
           continue;
         }
-        // Draw or retrieve the page's canvas section.
+
+        // Process the canvas drawing.
         processPage(
           pageData,
           i,
@@ -421,21 +430,19 @@ export default function useContinuousPdfRenderer({
           setRerenderFlag,
         );
 
-        // If the page is visible, create and attach its text layer.
+        // And immediately process text layer rendering if this page is visible.
         const pageBottom = pageData.yOffset + pageData.viewport.height;
-        if (pageBottom < visibleStart || pageData.yOffset > visibleEnd) {
-          // eslint-disable-next-line no-continue
-          continue;
+        if (pageBottom >= visibleStart && pageData.yOffset <= visibleEnd) {
+          renderTextLayer(pageData, pdfDoc, i + 1)
+            .then((textDiv) => {
+              textLayerRef.current?.appendChild(textDiv);
+              return null;
+            })
+            .catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error('Error rendering text layer:', error);
+            });
         }
-        renderTextLayer(pageData, pdfDoc!, i + 1)
-          .then((textDiv) => {
-            textLayerRef.current?.appendChild(textDiv);
-            return null;
-          })
-          .catch((error) => {
-            // eslint-disable-next-line no-console
-            console.error('Error rendering text layer:', error);
-          });
       }
       renderRafRef.current = null;
     });
