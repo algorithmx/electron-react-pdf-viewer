@@ -1,6 +1,11 @@
 import React from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
+interface PageData {
+  viewport: pdfjsLib.PageViewport;
+  yOffset: number;
+}
+
 /**
  * Calculates the range of pages to cache based on the visible region.
  *
@@ -12,7 +17,7 @@ import * as pdfjsLib from 'pdfjs-dist';
  * @returns A tuple [cacheStart, cacheEnd] indicating the indices of the first and last pages to cache.
  */
 function calculateStartEnd(
-  x: Array<{ viewport: pdfjsLib.PageViewport; yOffset: number }>,
+  x: Array<PageData>,
   N: number,
   visibleStart: number,
   visibleEnd: number,
@@ -300,6 +305,31 @@ async function getPagesDataArray(
   return { pagesDataLocal, totalHeightLocal };
 }
 
+async function getWidestPage(
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+): Promise<pdfjsLib.PDFPageProxy> {
+  // Use the widest page to determine the base viewport.
+  const { pagesDataLocal } = await getPagesDataArray(pdfDoc!, 1);
+  const widestPageIndex = pagesDataLocal.reduce((maxIndex, page, index) => {
+    return page.viewport.width > pagesDataLocal[maxIndex].viewport.width
+      ? index
+      : maxIndex;
+  }, 0);
+  // eslint-disable-next-line
+  console.log('[getWidestPage] widestPageIndex ', widestPageIndex);
+  return pdfDoc!
+    .getPage(widestPageIndex + 1)
+    .then((page) => {
+      return page;
+    })
+    .catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error('Error getting widest page:', error);
+      // return the first page
+      return pdfDoc!.getPage(1);
+    });
+}
+
 /**
  * Handles processing (rendering) of an individual page.
  *
@@ -422,4 +452,6 @@ export {
   getPagesDataArray,
   processPage,
   requestIdleCallbackShim,
+  getWidestPage,
+  PageData,
 };

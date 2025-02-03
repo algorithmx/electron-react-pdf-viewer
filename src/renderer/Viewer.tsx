@@ -55,7 +55,6 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
         });
       }
     };
-
     updateDimensions(); // initial measurement
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
