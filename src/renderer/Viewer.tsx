@@ -40,6 +40,7 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     containerWidth: dimensions.width,
     setTotalHeight,
     textLayerRef,
+    maxPagesKept: 5,
   });
 
   useLayoutEffect(() => {

@@ -164,18 +164,11 @@ function createCanvasElement(
 }
 
 /**
- * Renders a PDF page onto an offscreen canvas and caches the result.
- *
- * This function obtains the specified page from the PDF document, creates a canvas
- * using the provided viewport and scale, and renders the PDF page into that canvas.
- * It then triggers a re-render of React components by toggling the provided flag,
- * caches the rendered canvas, and returns the canvas element.
  *
  * @param pdfDoc - The PDFDocumentProxy object representing the loaded PDF.
  * @param pageNumber - The page number (1-indexed) to render.
  * @param viewport - The viewport for the page determining its dimensions.
  * @param outputScale - Scale factor for rendering (typically window.devicePixelRatio).
- * @param setRerenderFlag - React state dispatch function to force a re-render.
  * @param pageCanvasCacheRef - A mutable ref to a cache mapping page numbers to rendered canvases.
  * @returns A Promise resolving to the rendered HTMLCanvasElement.
  */
@@ -184,7 +177,6 @@ function renderCanvas(
   pageNumber: number,
   viewport: pdfjsLib.PageViewport,
   outputScale: number,
-  setRerenderFlag: React.Dispatch<React.SetStateAction<boolean>>,
   pageCanvasCacheRef: React.MutableRefObject<Map<number, HTMLCanvasElement>>,
 ): Promise<HTMLCanvasElement> {
   // Create an offscreen canvas element for rendering the PDF page.
@@ -207,8 +199,11 @@ function renderCanvas(
       return page.render({ canvasContext: renderCtx, viewport });
     })
     .then(() => {
-      // Toggle a re-render to update the UI when rendering is complete.
-      setRerenderFlag((prev: boolean) => !prev);
+      // eslint-disable-next-line no-console
+      console.log(
+        `%c[RENDER] Rendered page ${pageNumber}`,
+        'color: #ff0; background-color: #fff; padding: 2px 4px; border-radius: 4px;',
+      );
       // Cache the rendered canvas for later reuse.
       pageCanvasCacheRef.current.set(pageNumber, canvasElement);
       return canvasElement;
@@ -375,6 +370,7 @@ async function getWidestPage(
  * the page falls within a cacheable index range and whether it is visible.
  * If the page is not yet cached, it initiates asynchronous rendering and caching.
  * If the page is visible and already cached, it draws the specific visible section.
+ * - Return: is cache hit
  *
  * @param pageData - An object containing the page's viewport and y-offset.
  * @param index - The zero-indexed page position in the pages array.
@@ -386,6 +382,8 @@ async function getWidestPage(
  * @param pdfDoc - The PDFDocumentProxy object representing the loaded PDF.
  * @param pageCanvasCacheRef - A mutable ref to a cache mapping page numbers to rendered canvases.
  * @param setRerenderFlag - React state dispatch function to force a re-render.
+ * @param textLayerContainer - The container div for the text layer.
+ * @param pageTextLayerCacheRef - A mutable ref to a cache mapping page numbers to text layer containers.
  */
 function processPage(
   pageData: { viewport: pdfjsLib.PageViewport; yOffset: number },
@@ -397,10 +395,12 @@ function processPage(
   ctx: CanvasRenderingContext2D,
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageCanvasCacheRef: React.MutableRefObject<Map<number, HTMLCanvasElement>>,
-  setRerenderFlag: React.Dispatch<React.SetStateAction<boolean>>,
-): void {
+  textLayerContainer: HTMLDivElement,
+  pageTextLayerCacheRef: React.MutableRefObject<Map<number, HTMLDivElement>>,
+  pageRenderLockRef: React.MutableRefObject<Set<number>>,
+): boolean {
   // Skip processing if the page is outside the caching window.
-  if (index < cacheStart || index > cacheEnd) return;
+  if (index < cacheStart || index > cacheEnd) return false;
   const pageNumber = index + 1;
   const { viewport, yOffset } = pageData;
   // Determine the bottom edge of the page.
@@ -408,20 +408,44 @@ function processPage(
   // Check if the page is within the visible area.
   const isPageVisible = pageBottom >= visibleStart && yOffset <= visibleEnd;
   const outputScale = window.devicePixelRatio || 1;
-  // Retrieve the cached canvas if it exists.
+  let cacheHit = false;
+
+  // Always acquire the lock at the start of the critical section.
+  pageRenderLockRef.current.add(pageNumber);
+
+  // Array to track asynchronous tasks in the critical section.
+  const asyncTasks: Promise<any>[] = [];
+
+  // --- Canvas Rendering ---
   const cachedCanvas = pageCanvasCacheRef.current.get(pageNumber);
-  if (!cachedCanvas) {
-    // If the canvas is not cached, render and cache it asynchronously.
-    renderCanvas(
-      pdfDoc!,
+  // const cachedTextLayer = pageTextLayerCacheRef.current.get(pageNumber);
+  if (cachedCanvas) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `%c[CACHE] cache hit: ${pageNumber}`,
+      'color: #0f0; background-color: #000; padding: 2px 4px; border-radius: 4px;',
+    );
+    cacheHit = true;
+    if (isPageVisible) {
+      drawPageSection(
+        cachedCanvas,
+        pageData,
+        visibleStart,
+        visibleEnd,
+        ctx,
+        outputScale,
+      );
+    }
+  } else {
+    // Render the canvas asynchronously and add the promise to asyncTasks.
+    const canvasTask = renderCanvas(
+      pdfDoc,
       pageNumber,
       viewport,
       outputScale,
-      setRerenderFlag,
       pageCanvasCacheRef,
     )
       .then((canvasElement: HTMLCanvasElement) => {
-        // If rendered and the page is visible, draw only the visible section.
         if (canvasElement && isPageVisible) {
           drawPageSection(
             canvasElement,
@@ -435,61 +459,73 @@ function processPage(
         return null;
       })
       .catch((error) => {
-        // Log any errors during rendering.
         // eslint-disable-next-line no-console
         console.error('Error loading PDF:', error);
       });
-    return;
+    asyncTasks.push(canvasTask);
   }
 
-  // If the page is already cached and visible, simply draw the needed section.
-  if (!isPageVisible) return;
-  drawPageSection(
-    cachedCanvas,
-    pageData,
-    visibleStart,
-    visibleEnd,
-    ctx,
-    outputScale,
-  );
-}
+  // --- Text Layer Rendering ---
+  // if (isPageVisible) {
+  //   if (pageTextLayerCacheRef.current.has(pageNumber)) {
+  //     textLayerContainer.appendChild(
+  //       pageTextLayerCacheRef.current.get(pageNumber)!,
+  //     );
+  //   } else {
+  //     // Render the text layer asynchronously and add the promise to asyncTasks.
+  //     const textTask = renderTextLayer(
+  //       { viewport, yOffset },
+  //       pdfDoc,
+  //       pageNumber,
+  //     )
+  //       .then((textDiv: HTMLDivElement) => {
+  //         textLayerContainer.appendChild(textDiv);
+  //         pageTextLayerCacheRef.current.set(pageNumber, textDiv);
+  //         // eslint-disable-next-line no-console
+  //         console.log('[RENDER] Caching text layer for page', pageNumber);
+  //         return null;
+  //       })
+  //       .catch((error) => {
+  //         // eslint-disable-next-line no-console
+  //         console.error(
+  //           'Error rendering text layer for page',
+  //           pageNumber,
+  //           error,
+  //         );
+  //       });
+  //     asyncTasks.push(textTask);
+  //   }
+  // }
 
-/**
- * A shim for requestIdleCallback that falls back to setTimeout if not available.
- *
- * This function ensures that the provided callback gets executed when the browser is idle.
- *
- * @param callback - A function that accepts a deadline object containing:
- *    - timeRemaining: a function to determine the available idle time.
- *    - didTimeout: a boolean indicating whether the callback was invoked due to a timeout.
- * @returns A numeric id that can be used to cancel the callback if needed.
- */
-function requestIdleCallbackShim(
-  callback: (deadline: {
-    timeRemaining: () => number;
-    didTimeout: boolean;
-  }) => void,
-): number {
-  // Use the native requestIdleCallback if available.
-  if (window.requestIdleCallback) {
-    return window.requestIdleCallback(callback);
+  // Release the render lock only after all queued asynchronous tasks complete.
+  if (asyncTasks.length > 0) {
+    // eslint-disable-next-line no-void
+    void Promise.all(asyncTasks)
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error rendering page', pageNumber, error);
+      })
+      .finally(() => {
+        pageRenderLockRef.current.delete(pageNumber);
+        // eslint-disable-next-line no-console
+        console.log(
+          `%c[RELEASE] Released render lock for page ${pageNumber}`,
+          'color: #f00; background-color: #000; padding: 2px 4px; border-radius: 4px;',
+        );
+      });
+  } else {
+    pageRenderLockRef.current.delete(pageNumber);
   }
-  // Fallback to setTimeout with an estimated timeRemaining value.
-  return window.setTimeout(() => {
-    callback({ didTimeout: false, timeRemaining: () => 50 });
-  }, 50);
+  return cacheHit;
 }
 
 export {
   calculateStartEnd,
   drawPageSection,
   createCanvasElement,
-  renderCanvas,
   createTextLayerDiv,
-  renderTextLayer,
   getPagesDataArray,
   processPage,
-  requestIdleCallbackShim,
   getWidestPage,
   PageData,
   setUpCanvasElement,

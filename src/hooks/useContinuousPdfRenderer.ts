@@ -1,11 +1,6 @@
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import React, { useEffect, useRef, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import {
-  calculateStartEnd,
-  renderTextLayer,
-  processPage,
-  setUpCanvasElement,
-} from './utils';
+import { calculateStartEnd, processPage, setUpCanvasElement } from './utils';
 import usePdfLayout from './usePdfLayout';
 
 interface UseContinuousPdfRendererProps {
@@ -20,6 +15,8 @@ interface UseContinuousPdfRendererProps {
   visibleHeight: number;
   containerWidth: number;
   setTotalHeight: (height: number) => void;
+  // Maximum number of pages to keep in the cache, default to 20
+  maxPagesKept: number;
 }
 
 /**
@@ -36,13 +33,16 @@ export default function useContinuousPdfRenderer({
   visibleHeight,
   containerWidth,
   setTotalHeight,
+  maxPagesKept,
 }: UseContinuousPdfRendererProps): void {
   // Cache for rendered pages: key = page number, value = offscreen canvas.
   const pageCanvasCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
-  // Improved: Cache for rendered text layers to avoid redundant re-rendering.
+  // Cache for rendered text layers to avoid redundant re-rendering.
   const pageTextLayerCacheRef = useRef<Map<number, HTMLDivElement>>(new Map());
-  // Cache count for eviction
-  const [cacheCount, setCacheCount] = useState<number>(0);
+  // Lock for page rendering
+  const pageRenderLockRef = useRef<Set<number>>(new Set());
+  // List of processed page numbers
+  const processedPageNumbersRef = useRef<number[]>([]);
 
   // Clear caches when pdfDoc changes.
   useEffect(() => {
@@ -57,9 +57,6 @@ export default function useContinuousPdfRenderer({
     setTotalHeight,
     scaleRef,
   });
-
-  // Dummy state to force re-render when async rendering finishes.
-  const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
 
   // Composite visible pages onto a canvas sized to the container.
   useLayoutEffect(() => {
@@ -81,7 +78,11 @@ export default function useContinuousPdfRenderer({
       return;
     }
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      // eslint-disable-next-line no-console
+      console.error('No context found');
+      return;
+    }
 
     function compositeVisiblePages({
       visibleStart,
@@ -104,34 +105,12 @@ export default function useContinuousPdfRenderer({
       ctx!.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
 
-      // --- Eviction Strategy ---
-      const buffer = 2;
-      // Convert indices (zero-indexed) to page numbers (1-indexed)
-      const minAllowedPage = Math.max(1, cacheStart + 1 - buffer);
-      const maxAllowedPage = Math.min(pdfDoc!.numPages, cacheEnd + 1 + buffer);
-
-      // Helper to evict entries outside of the allowed range.
-      const evictCacheEntries = <T>(cache: Map<number, T>): void => {
-        Array.from(cache.keys()).forEach((page) => {
-          if (page < minAllowedPage || page > maxAllowedPage) {
-            cache.delete(page);
-          }
-        });
-      };
-      if (cacheCount > 5) {
-        evictCacheEntries(pageCanvasCacheRef.current);
-        evictCacheEntries(pageTextLayerCacheRef.current);
-        setCacheCount(0);
-      } else {
-        setCacheCount((c: number) => c + 1);
-      }
-      // --- End of Eviction Strategy ---
-
       // Clear old text layer elements.
       if (textLayerRef.current) {
         textLayerRef.current.innerHTML = '';
       }
 
+      // --- LRU Cache Eviction Strategy: Keep N most recent pdf pages ---
       // Iterate over pages in the current cache range.
       for (let i = cacheStart; i <= cacheEnd; i += 1) {
         const pageData = pagesData[i];
@@ -139,8 +118,8 @@ export default function useContinuousPdfRenderer({
           // eslint-disable-next-line no-continue
           continue;
         }
-
-        processPage(
+        const pageNumber = i + 1;
+        const cacheHit = processPage(
           pageData,
           i,
           visibleStart,
@@ -150,39 +129,61 @@ export default function useContinuousPdfRenderer({
           ctx!,
           pdfDoc!,
           pageCanvasCacheRef,
-          setRerenderFlag,
+          textLayerRef.current!,
+          pageTextLayerCacheRef,
+          pageRenderLockRef,
         );
-
-        const pageBottom = pageData.yOffset + pageData.viewport.height;
-        if (pageBottom >= visibleStart && pageData.yOffset <= visibleEnd) {
-          const pageNumber = i + 1;
-          // Use a cached text layer if available; otherwise, render it.
-          if (pageTextLayerCacheRef.current.has(pageNumber)) {
-            textLayerRef.current?.appendChild(
-              pageTextLayerCacheRef.current.get(pageNumber)!,
-            );
-          } else {
-            renderTextLayer(pageData, pdfDoc!, pageNumber)
-              .then((textDiv) => {
-                textLayerRef.current?.appendChild(textDiv);
-                pageTextLayerCacheRef.current.set(pageNumber, textDiv);
-                return null;
-              })
-              .catch((error) => {
-                // eslint-disable-next-line no-console
-                console.error('Error rendering text layer:', error);
-              });
-          }
+        if (!cacheHit) {
+          processedPageNumbersRef.current.push(pageNumber);
+          // eslint-disable-next-line no-console
+          console.log(
+            `%c[++++] Cached pages ${processedPageNumbersRef.current}`,
+            'color: #fff; background-color: #000; padding: 2px 4px; border-radius: 4px;',
+          );
         }
       }
+
+      // Update the recent pages list with the 10 most recently processed pages.
+      if (processedPageNumbersRef.current.length > maxPagesKept) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `%c[XXXXX] Evicting pages ${processedPageNumbersRef.current.slice(
+            0,
+            processedPageNumbersRef.current.length - maxPagesKept,
+          )}`,
+          'color: #ff0; background-color: #000; padding: 2px 4px; border-radius: 4px;',
+        );
+        processedPageNumbersRef.current =
+          processedPageNumbersRef.current.slice(-maxPagesKept);
+        // Evict cache entries not in the recent pages list.
+        const allowedPages = new Set(processedPageNumbersRef.current);
+        const evictCacheEntries = <T>(cache: Map<number, T>): void => {
+          Array.from(cache.keys()).forEach((page) => {
+            if (
+              !allowedPages.has(page) &&
+              !pageRenderLockRef.current.has(page)
+            ) {
+              // eslint-disable-next-line no-console
+              console.log(
+                `%c[XXXXX] Evicting page ${page}`,
+                'color: #f00; background-color: #000; padding: 2px 4px; border-radius: 4px;',
+              );
+              cache.delete(page);
+            }
+          });
+        };
+        evictCacheEntries(pageCanvasCacheRef.current);
+        evictCacheEntries(pageTextLayerCacheRef.current);
+      }
     }
+    // --- End of LRU Cache Eviction Strategy ---
 
     const [visibleStart, visibleEnd, cacheStart, cacheEnd] = calculateStartEnd(
       pagesData,
       pdfDoc!.numPages,
       scrollOffset,
       visibleHeight,
-      2,
+      1,
     );
 
     // Offload heavy compositing work to the next animation frame.
@@ -199,17 +200,6 @@ export default function useContinuousPdfRenderer({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [
-    pdfDoc,
-    containerRef,
-    canvasRef,
-    textLayerRef,
-    scrollOffset,
-    visibleHeight,
-    rerenderFlag,
-    containerWidth,
-    pagesData,
-    setTotalHeight,
-    cacheCount,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfDoc, scrollOffset, visibleHeight, pagesData]);
 }
