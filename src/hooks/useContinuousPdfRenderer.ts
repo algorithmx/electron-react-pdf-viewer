@@ -64,42 +64,6 @@ export default function useContinuousPdfRenderer({
   // Ref for scheduling canvas rendering via requestAnimationFrame.
   const renderRafRef = useRef<number | null>(null);
 
-  // Pre-render pages sequentially.
-  // function schedulePreRendering(pageNumber: number): void {
-  //   if (!pdfDoc || pageNumber > pdfDoc.numPages) return;
-  //   const pageData = pagesData[pageNumber - 1];
-  //   if (!pageData) return;
-  //   const outputScale = window.devicePixelRatio || 1;
-  //   const renderPromise = !pageCanvasCacheRef.current.has(pageNumber)
-  //     ? renderCanvas(
-  //         pdfDoc,
-  //         pageNumber,
-  //         pageData.viewport,
-  //         outputScale,
-  //         setRerenderFlag,
-  //         pageCanvasCacheRef,
-  //       )
-  //     : Promise.resolve();
-  //   // eslint-disable-next-line consistent-return, promise/catch-or-return
-  //   renderPromise
-  //     .catch((error) => {
-  //       // eslint-disable-next-line no-console
-  //       console.error('Error pre-rendering page:', error);
-  //     })
-  //     .finally(() => {
-  //       requestIdleCallbackShim(() => {
-  //         schedulePreRendering(pageNumber + 1);
-  //       });
-  //     });
-  // }
-
-  // (Do NOT) Initiate pre-rendering once layout data is available.
-  // useEffect(() => {
-  //   if (pdfDoc && pagesData.length > 0) {
-  //     schedulePreRendering(1);
-  //   }
-  // }, [pdfDoc, pagesData]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Composite visible pages onto a canvas sized to the container.
   useLayoutEffect(() => {
     if (!pdfDoc) return;
