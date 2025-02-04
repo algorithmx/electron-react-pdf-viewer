@@ -79,7 +79,7 @@ function calculateStartEnd(
  */
 function drawPageSection(
   canvasElement: HTMLCanvasElement,
-  pageData: { viewport: pdfjsLib.PageViewport; yOffset: number },
+  pageData: PageData,
   visibleStart: number,
   visibleEnd: number,
   ctx: CanvasRenderingContext2D,
@@ -175,11 +175,12 @@ function createCanvasElement(
 function renderCanvas(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageNumber: number,
-  viewport: pdfjsLib.PageViewport,
+  pageData: PageData,
   outputScale: number,
   pageCanvasCacheRef: React.MutableRefObject<Map<number, HTMLCanvasElement>>,
 ): Promise<HTMLCanvasElement> {
   // Create an offscreen canvas element for rendering the PDF page.
+  const { viewport } = pageData;
   const canvasElement = createCanvasElement(viewport, outputScale);
   return pdfDoc!
     .getPage(pageNumber)
@@ -200,10 +201,10 @@ function renderCanvas(
     })
     .then(() => {
       // eslint-disable-next-line no-console
-      console.log(
-        `%c[RENDER] Rendered page ${pageNumber}`,
-        'color: #ff0; background-color: #fff; padding: 2px 4px; border-radius: 4px;',
-      );
+      // console.log(
+      //   `%c[RENDER] Rendered page ${pageNumber}`,
+      //   'color: #ff0; background-color: #fff; padding: 2px 4px; border-radius: 4px;',
+      // );
       // Cache the rendered canvas for later reuse.
       pageCanvasCacheRef.current.set(pageNumber, canvasElement);
       return canvasElement;
@@ -217,78 +218,123 @@ function renderCanvas(
 }
 
 /**
- * Creates a div element to serve as the container for rendering text layers.
+ * Revised: Creates a div element to serve as the container for rendering the text layer.
  *
- * The div is absolutely positioned based on the page's y-offset
- * and sized according to the viewport dimensions.
+ * The container is positioned using the page's y-offset so that text elements have the correct
+ * absolute PDF coordinates.
  *
- * @param pageData - An object containing the page's viewport and its y-offset.
+ * @param pageData - An object containing the page's viewport and its cumulative y-offset.
  * @returns An HTMLDivElement styled for the text layer.
  */
-function createTextLayerDiv(pageData: {
-  viewport: pdfjsLib.PageViewport;
-  yOffset: number;
-}) {
-  // Create a container div for the text layer.
+function createTextLayerDiv(pageData: PageData) {
+  const { viewport, yOffset } = pageData;
   const textDiv = document.createElement('div');
-  // Set position to absolute so it overlays the corresponding page.
   textDiv.style.position = 'absolute';
   textDiv.style.left = '0px';
-  // Add CSS class for text styling.
+  // Position the text layer at the page's y-offset.
+  textDiv.style.top = `${yOffset}px`;
   textDiv.className = 'textLayer';
-  // Position the div at the correct vertical offset.
-  textDiv.style.top = `${pageData.yOffset}px`;
-  // Set the div's width and height based on the page viewport size.
-  textDiv.style.width = `${pageData.viewport.width}px`;
-  textDiv.style.height = `${pageData.viewport.height}px`;
+  textDiv.style.width = `${viewport.width}px`;
+  textDiv.style.height = `${viewport.height}px`;
   return textDiv;
 }
 
 /**
- * Renders the text layer for a specific page.
+ * Revised: Renders the text layer for a specific page.
  *
- * This function creates a container for the text layer, retrieves the text content
- * from the PDF page, instantiates a new TextLayer (from pdfjsLib), and renders it.
- * It returns the container div after rendering is complete.
+ * This function creates the text layer container (using our new createTextLayerDiv),
+ * retrieves the text content from the PDF page, instantiates a new pdfjsLib.TextLayer,
+ * and renders it. The rendered text layer is then cached.
  *
- * @param pageData - An object containing the page's viewport and its y-offset.
- * @param pdfDoc - The PDFDocumentProxy object representing the loaded PDF.
- * @param pageNumber - The page number (1-indexed) for which to render the text layer.
- * @returns A Promise resolving to the HTMLDivElement containing the text layer.
+ * @param pdfDoc - The PDFDocumentProxy representing the loaded PDF.
+ * @param pageNumber - The page number (1-indexed) to render.
+ * @param pageData - An object containing the page's viewport and y-offset.
+ * @param outputScale - Scale factor (unused for text, maintained for API consistency).
+ * @param pageTextLayerCacheRef - A mutable ref mapping page numbers to rendered text layer containers.
+ * @returns A Promise resolving to the rendered HTMLDivElement of the text layer.
  */
 function renderTextLayer(
-  pageData: {
-    viewport: pdfjsLib.PageViewport;
-    yOffset: number;
-  },
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageNumber: number,
+  pageData: PageData,
+  outputScale: number, // Not used, but kept for API consistency.
+  pageTextLayerCacheRef: React.MutableRefObject<Map<number, HTMLDivElement>>,
 ): Promise<HTMLDivElement> {
-  // Create the container div where the text will be rendered.
+  // Create text layer container with correct offset.
   const textDiv = createTextLayerDiv(pageData);
-  return pdfDoc!
+  return pdfDoc
     .getPage(pageNumber)
-    .then((page) => {
-      // Extract the text content from the page.
-      return page.getTextContent();
-    })
+    .then((page) => page.getTextContent())
     .then((textContent) => {
-      // Instantiate a new text layer with the retrieved content.
       const textLayer = new pdfjsLib.TextLayer({
         textContentSource: textContent,
         container: textDiv,
         viewport: pageData.viewport,
       });
-      // Render the text layer onto the container div.
-      textLayer.render();
+      return textLayer.render();
+    })
+    .then(() => {
+      pageTextLayerCacheRef.current.set(pageNumber, textDiv);
       return textDiv;
     })
     .catch((error) => {
-      // Log errors if text layer rendering fails.
       // eslint-disable-next-line no-console
       console.error('Error rendering text layer for page', pageNumber, error);
       return textDiv;
     });
+}
+
+/**
+ * Draws a designated section of a rendered text layer onto the global text layer container.
+ *
+ * This function clones the cached text layer (for a given page), applies CSS clipping so that
+ * only the portion overlapping the visible area is shown, repositions the clone relative to the
+ * global container, and appends it.
+ *
+ * @param textLayerElement - The cached text layer element for the page.
+ * @param pageData - An object containing the page's viewport and its y-offset.
+ * @param visibleStart - The top boundary (in PDF CSS pixels) of the visible area.
+ * @param visibleEnd - The bottom boundary (in PDF CSS pixels) of the visible area.
+ * @param container - The global text layer container where the merged text is rendered.
+ */
+function drawTextLayerSection(
+  textLayerElement: HTMLDivElement,
+  pageData: PageData,
+  visibleStart: number,
+  visibleEnd: number,
+  container: HTMLDivElement,
+) {
+  const { viewport, yOffset } = pageData;
+  const pageTop = yOffset;
+  const pageBottom = yOffset + viewport.height;
+  const intersectionTop = Math.max(pageTop, visibleStart);
+  const intersectionBottom = Math.min(pageBottom, visibleEnd);
+  if (intersectionBottom <= intersectionTop) {
+    return;
+  }
+  // Compute top and bottom insets (in pixels) relative to the original page height.
+  const clipTop = intersectionTop - pageTop; // top inset in px
+  const clipBottom = pageBottom - intersectionBottom; // bottom inset in px
+
+  // Create a container that has the full page dimensions.
+  const fullContainer = document.createElement('div');
+  fullContainer.style.position = 'absolute';
+  // Position relative to the global text container.
+  fullContainer.style.top = `${pageTop - visibleStart}px`;
+  fullContainer.style.left = '0px';
+  fullContainer.style.width = `${viewport.width}px`;
+  fullContainer.style.height = `${viewport.height}px`;
+  // Use CSS clip-path (hardware accelerated and efficient) to clip the visible portion.
+  fullContainer.style.clipPath = `inset(${clipTop}px 0px ${clipBottom}px 0px)`;
+
+  // Clone the original text layer without modifying its inline percentage values.
+  const clonedTextLayer = textLayerElement.cloneNode(true) as HTMLDivElement;
+  clonedTextLayer.style.position = 'absolute';
+  clonedTextLayer.style.top = '0px';
+  clonedTextLayer.style.left = '0px';
+
+  fullContainer.appendChild(clonedTextLayer);
+  container.appendChild(fullContainer);
 }
 
 /**
@@ -418,13 +464,7 @@ function processPage(
 
   // --- Canvas Rendering ---
   const cachedCanvas = pageCanvasCacheRef.current.get(pageNumber);
-  // const cachedTextLayer = pageTextLayerCacheRef.current.get(pageNumber);
   if (cachedCanvas) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `%c[CACHE] cache hit: ${pageNumber}`,
-      'color: #0f0; background-color: #000; padding: 2px 4px; border-radius: 4px;',
-    );
     cacheHit = true;
     if (isPageVisible) {
       drawPageSection(
@@ -437,11 +477,11 @@ function processPage(
       );
     }
   } else {
-    // Render the canvas asynchronously and add the promise to asyncTasks.
+    // essentially call pdfDoc.getPage(pageNumber).render(...)
     const canvasTask = renderCanvas(
       pdfDoc,
       pageNumber,
-      viewport,
+      pageData,
       outputScale,
       pageCanvasCacheRef,
     )
@@ -466,52 +506,59 @@ function processPage(
   }
 
   // --- Text Layer Rendering ---
-  // if (isPageVisible) {
-  //   if (pageTextLayerCacheRef.current.has(pageNumber)) {
-  //     textLayerContainer.appendChild(
-  //       pageTextLayerCacheRef.current.get(pageNumber)!,
-  //     );
-  //   } else {
-  //     // Render the text layer asynchronously and add the promise to asyncTasks.
-  //     const textTask = renderTextLayer(
-  //       { viewport, yOffset },
-  //       pdfDoc,
-  //       pageNumber,
-  //     )
-  //       .then((textDiv: HTMLDivElement) => {
-  //         textLayerContainer.appendChild(textDiv);
-  //         pageTextLayerCacheRef.current.set(pageNumber, textDiv);
-  //         // eslint-disable-next-line no-console
-  //         console.log('[RENDER] Caching text layer for page', pageNumber);
-  //         return null;
-  //       })
-  //       .catch((error) => {
-  //         // eslint-disable-next-line no-console
-  //         console.error(
-  //           'Error rendering text layer for page',
-  //           pageNumber,
-  //           error,
-  //         );
-  //       });
-  //     asyncTasks.push(textTask);
-  //   }
-  // }
+  const cachedTextLayer = pageTextLayerCacheRef.current.get(pageNumber);
+  if (cachedTextLayer) {
+    cacheHit = true;
+    if (isPageVisible) {
+      drawTextLayerSection(
+        cachedTextLayer,
+        pageData,
+        visibleStart,
+        visibleEnd,
+        textLayerContainer,
+      );
+    }
+  } else {
+    const textTask = renderTextLayer(
+      pdfDoc,
+      pageNumber,
+      pageData,
+      outputScale,
+      pageTextLayerCacheRef,
+    )
+      .then((textDiv: HTMLDivElement) => {
+        // Once rendered, check again if visible and then composite.
+        if (isPageVisible) {
+          drawTextLayerSection(
+            textDiv,
+            pageData,
+            visibleStart,
+            visibleEnd,
+            textLayerContainer,
+          );
+        }
+        return null;
+      })
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error rendering text layer for page', pageNumber, error);
+      });
+    asyncTasks.push(textTask);
+  }
 
   // Release the render lock only after all queued asynchronous tasks complete.
   if (asyncTasks.length > 0) {
     // eslint-disable-next-line no-void
     void Promise.all(asyncTasks)
+      .then(() => {
+        return null;
+      })
       .catch((error) => {
         // eslint-disable-next-line no-console
         console.error('Error rendering page', pageNumber, error);
       })
       .finally(() => {
         pageRenderLockRef.current.delete(pageNumber);
-        // eslint-disable-next-line no-console
-        console.log(
-          `%c[RELEASE] Released render lock for page ${pageNumber}`,
-          'color: #f00; background-color: #000; padding: 2px 4px; border-radius: 4px;',
-        );
       });
   } else {
     pageRenderLockRef.current.delete(pageNumber);
@@ -529,4 +576,7 @@ export {
   getWidestPage,
   PageData,
   setUpCanvasElement,
+  renderCanvas,
+  renderTextLayer,
+  drawTextLayerSection,
 };

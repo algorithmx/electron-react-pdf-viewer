@@ -135,24 +135,11 @@ export default function useContinuousPdfRenderer({
         );
         if (!cacheHit) {
           processedPageNumbersRef.current.push(pageNumber);
-          // eslint-disable-next-line no-console
-          console.log(
-            `%c[++++] Cached pages ${processedPageNumbersRef.current}`,
-            'color: #fff; background-color: #000; padding: 2px 4px; border-radius: 4px;',
-          );
         }
       }
 
       // Update the recent pages list with the 10 most recently processed pages.
       if (processedPageNumbersRef.current.length > maxPagesKept) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `%c[XXXXX] Evicting pages ${processedPageNumbersRef.current.slice(
-            0,
-            processedPageNumbersRef.current.length - maxPagesKept,
-          )}`,
-          'color: #ff0; background-color: #000; padding: 2px 4px; border-radius: 4px;',
-        );
         processedPageNumbersRef.current =
           processedPageNumbersRef.current.slice(-maxPagesKept);
         // Evict cache entries not in the recent pages list.
@@ -164,10 +151,6 @@ export default function useContinuousPdfRenderer({
               !pageRenderLockRef.current.has(page)
             ) {
               // eslint-disable-next-line no-console
-              console.log(
-                `%c[XXXXX] Evicting page ${page}`,
-                'color: #f00; background-color: #000; padding: 2px 4px; border-radius: 4px;',
-              );
               cache.delete(page);
             }
           });
