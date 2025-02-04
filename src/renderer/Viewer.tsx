@@ -72,8 +72,6 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     } else {
       setScrollOffset(Math.max(scrollOffset + e.deltaY, 0));
     }
-    // eslint-disable-next-line no-console
-    console.log('[pos] ', scrollOffset);
   };
 
   // --- Rectangle selection state and event handlers ---

@@ -200,12 +200,6 @@ function renderCanvas(
       return page.render({ canvasContext: renderCtx, viewport });
     })
     .then(() => {
-      // eslint-disable-next-line no-console
-      // console.log(
-      //   `%c[RENDER] Rendered page ${pageNumber}`,
-      //   'color: #ff0; background-color: #fff; padding: 2px 4px; border-radius: 4px;',
-      // );
-      // Cache the rendered canvas for later reuse.
       pageCanvasCacheRef.current.set(pageNumber, canvasElement);
       return canvasElement;
     })
@@ -218,7 +212,7 @@ function renderCanvas(
 }
 
 /**
- * Revised: Creates a div element to serve as the container for rendering the text layer.
+ * Creates a div element to serve as the container for rendering the text layer.
  *
  * The container is positioned using the page's y-offset so that text elements have the correct
  * absolute PDF coordinates.
@@ -240,7 +234,7 @@ function createTextLayerDiv(pageData: PageData) {
 }
 
 /**
- * Revised: Renders the text layer for a specific page.
+ * Renders the text layer for a specific page.
  *
  * This function creates the text layer container (using our new createTextLayerDiv),
  * retrieves the text content from the PDF page, instantiates a new pdfjsLib.TextLayer,
