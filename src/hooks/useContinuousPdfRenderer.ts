@@ -41,6 +41,8 @@ export default function useContinuousPdfRenderer({
   const pageCanvasCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
   // Improved: Cache for rendered text layers to avoid redundant re-rendering.
   const pageTextLayerCacheRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  // Cache count for eviction
+  const [cacheCount, setCacheCount] = useState<number>(0);
 
   // Clear caches when pdfDoc changes.
   useEffect(() => {
@@ -58,24 +60,28 @@ export default function useContinuousPdfRenderer({
 
   // Dummy state to force re-render when async rendering finishes.
   const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
-  // Ref for scheduling canvas rendering via requestAnimationFrame.
-  const renderRafRef = useRef<number | null>(null);
 
   // Composite visible pages onto a canvas sized to the container.
   useLayoutEffect(() => {
-    if (!pdfDoc) return;
+    if (!pdfDoc) {
+      // eslint-disable-next-line no-console
+      console.error('No PDF document found');
+      return;
+    }
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      // eslint-disable-next-line no-console
+      console.error('No container found');
+      return;
+    }
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      // eslint-disable-next-line no-console
+      console.error('No canvas found');
+      return;
+    }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    // Cancel any pending frame to avoid redundant renders.
-    if (renderRafRef.current !== null) {
-      cancelAnimationFrame(renderRafRef.current);
-      renderRafRef.current = null;
-    }
 
     function compositeVisiblePages({
       visibleStart,
@@ -112,9 +118,13 @@ export default function useContinuousPdfRenderer({
           }
         });
       };
-
-      evictCacheEntries(pageCanvasCacheRef.current);
-      evictCacheEntries(pageTextLayerCacheRef.current);
+      if (cacheCount > 5) {
+        evictCacheEntries(pageCanvasCacheRef.current);
+        evictCacheEntries(pageTextLayerCacheRef.current);
+        setCacheCount(0);
+      } else {
+        setCacheCount((c: number) => c + 1);
+      }
       // --- End of Eviction Strategy ---
 
       // Clear old text layer elements.
@@ -175,12 +185,20 @@ export default function useContinuousPdfRenderer({
       2,
     );
 
-    compositeVisiblePages({
-      visibleStart,
-      visibleEnd,
-      cacheStart,
-      cacheEnd,
+    // Offload heavy compositing work to the next animation frame.
+    const frameId = window.requestAnimationFrame(() => {
+      compositeVisiblePages({
+        visibleStart,
+        visibleEnd,
+        cacheStart,
+        cacheEnd,
+      });
     });
+
+    // eslint-disable-next-line consistent-return
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [
     pdfDoc,
     containerRef,
@@ -192,5 +210,6 @@ export default function useContinuousPdfRenderer({
     containerWidth,
     pagesData,
     setTotalHeight,
+    cacheCount,
   ]);
 }
