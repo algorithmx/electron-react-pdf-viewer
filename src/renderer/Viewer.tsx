@@ -7,9 +7,15 @@ import DebouncedSlider from '../components/DebouncedSlider';
 interface ViewerProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy | null;
   scaleRef: React.MutableRefObject<number | undefined>;
+  // Callback to transfer snapshot data URL to the parent.
+  onSnapshot: (snapshotDataUrl: string) => void;
 }
 
-function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
+function Viewer({
+  pdfDoc,
+  scaleRef,
+  onSnapshot = () => {},
+}: ViewerProps): React.ReactNode {
   const [totalHeight, setTotalHeight] = useState<number>(0);
   const [scrollOffset, setScrollOffset] = useState<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -75,13 +81,12 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
   };
 
   // --- Rectangle selection state and event handlers ---
-  const handleMouseDown = (
-    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
-  ) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only proceed if Ctrl key is held down.
+    if (!e.ctrlKey) return;
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const { clientX, clientY } = e;
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     setStartPos({ x, y });
@@ -89,13 +94,18 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     setSelecting(true);
   };
 
-  const handleMouseMove = (
-    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
-  ) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    // If Ctrl is released mid-drag, cancel the selection.
+    if (!e.ctrlKey) {
+      if (selecting) {
+        setSelecting(false);
+        setSelectionRect({ x: 0, y: 0, width: 0, height: 0 });
+      }
+      return;
+    }
     if (!selecting || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const { clientX, clientY } = e;
     const currX = clientX - rect.left;
     const currY = clientY - rect.top;
     const x = Math.min(startPos.x, currX);
@@ -105,12 +115,44 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
     setSelectionRect({ x, y, width, height });
   };
 
-  const handleMouseUp = (
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
-  ) => {
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only act on mouse up if Ctrl key is held.
+    if (!e.ctrlKey) return;
     if (!selecting) return;
     setSelecting(false);
+
+    // Take snapshot of selected area from canvas and transfer to right panel.
+    if (
+      selectionRect.width > 0 &&
+      selectionRect.height > 0 &&
+      canvasRef.current
+    ) {
+      const dpr = window.devicePixelRatio || 1;
+      const { x, y, width, height } = selectionRect;
+      const sourceCanvas = canvasRef.current;
+      const snapshotCanvas = document.createElement('canvas');
+      snapshotCanvas.width = width * dpr;
+      snapshotCanvas.height = height * dpr;
+      const snapshotCtx = snapshotCanvas.getContext('2d');
+      if (snapshotCtx) {
+        snapshotCtx.drawImage(
+          sourceCanvas,
+          x * dpr,
+          y * dpr,
+          width * dpr,
+          height * dpr,
+          0,
+          0,
+          width * dpr,
+          height * dpr,
+        );
+        const dataUrl = snapshotCanvas.toDataURL();
+        if (onSnapshot) {
+          onSnapshot(dataUrl);
+        }
+      }
+    }
+
     // eslint-disable-next-line no-console
     console.log('Selected area:', selectionRect);
     setTimeout(
@@ -130,9 +172,9 @@ function Viewer({ pdfDoc, scaleRef }: ViewerProps): React.ReactNode {
         aria-label="PDF viewer"
         style={{ position: 'relative' }}
         onWheel={handleWheel}
-        // onMouseDown={handleMouseDown}
-        // onMouseMove={handleMouseMove}
-        // onMouseUp={handleMouseUp}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
       >
         {pdfDoc ? (
           <>
