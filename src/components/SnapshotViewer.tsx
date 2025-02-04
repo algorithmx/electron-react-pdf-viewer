@@ -4,6 +4,7 @@ interface SnapshotViewerProps {
   snapshots: string[];
 }
 
+// for debug use only
 function SnapshotViewer({ snapshots }: SnapshotViewerProps) {
   return (
     <div
