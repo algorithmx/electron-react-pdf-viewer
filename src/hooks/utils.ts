@@ -19,10 +19,12 @@ interface PageData {
 function calculateStartEnd(
   x: Array<PageData>,
   N: number,
-  visibleStart: number,
-  visibleEnd: number,
+  dh: number,
+  H: number,
   Q: number = 3,
 ) {
+  const visibleStart = dh;
+  const visibleEnd = dh + H;
   // Initialize with extreme values so that any valid page discovers new bounds.
   let firstVisibleIndex = Number.POSITIVE_INFINITY;
   let lastVisibleIndex = Number.NEGATIVE_INFINITY;
@@ -59,7 +61,7 @@ function calculateStartEnd(
   // Extend the index range by Q pages on either side, clamping to document limits.
   const cacheStart = Math.max(0, firstVisibleIndex - Q);
   const cacheEnd = Math.min(N - 1, lastVisibleIndex + Q);
-  return [cacheStart, cacheEnd];
+  return [visibleStart, visibleEnd, cacheStart, cacheEnd];
 }
 
 /**
@@ -111,6 +113,33 @@ function drawPageSection(
 }
 
 /**
+ * Sets up a canvas element with the given width, height, and scale.
+ *
+ * This function sets the intrinsic width and height of the canvas to the
+ * product of the given width and height with the scale factor.
+ *
+ * @param c - The HTMLCanvasElement to configure.
+ * @param W - The width of the canvas.
+ * @param H - The height of the canvas.
+ * @param X - The scale factor.
+ * @returns The configured HTMLCanvasElement.
+ */
+function setUpCanvasElement(
+  c: HTMLCanvasElement,
+  W: number,
+  H: number,
+  X: number,
+) {
+  // Set the intrinsic width and height multiplied by the scale.
+  c.width = Math.floor(W * X);
+  c.height = Math.floor(H * X);
+  // Set the CSS dimensions to the unscaled size.
+  c.style.width = `${Math.floor(W)}px`;
+  c.style.height = `${Math.floor(H)}px`;
+  return c;
+}
+
+/**
  * Creates a new canvas element that is configured based on the provided viewport and scale.
  *
  * The function sets both the intrinsic canvas dimensions (used for rendering)
@@ -126,13 +155,12 @@ function createCanvasElement(
 ) {
   // Create a new canvas element.
   const canvas = document.createElement('canvas');
-  // Set the intrinsic width and height multiplied by the scale.
-  canvas.width = Math.floor(viewport.width * outputScale);
-  canvas.height = Math.floor(viewport.height * outputScale);
-  // Set the CSS dimensions to the unscaled size.
-  canvas.style.width = `${Math.floor(viewport.width)}px`;
-  canvas.style.height = `${Math.floor(viewport.height)}px`;
-  return canvas;
+  return setUpCanvasElement(
+    canvas,
+    viewport.width,
+    viewport.height,
+    outputScale,
+  );
 }
 
 /**
@@ -305,6 +333,15 @@ async function getPagesDataArray(
   return { pagesDataLocal, totalHeightLocal };
 }
 
+/**
+ * Retrieves the widest page in the PDF document.
+ *
+ * This function calculates the widest page by iterating through all pages
+ * and comparing their widths. It then returns the widest page.
+ *
+ * @param pdfDoc - The PDFDocumentProxy object representing the loaded PDF.
+ * @returns A Promise resolving to the widest PDFPageProxy object.
+ */
 async function getWidestPage(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
 ): Promise<pdfjsLib.PDFPageProxy> {
@@ -315,8 +352,6 @@ async function getWidestPage(
       ? index
       : maxIndex;
   }, 0);
-  // eslint-disable-next-line
-  console.log('[getWidestPage] widestPageIndex ', widestPageIndex);
   return pdfDoc!
     .getPage(widestPageIndex + 1)
     .then((page) => {
@@ -454,4 +489,5 @@ export {
   requestIdleCallbackShim,
   getWidestPage,
   PageData,
+  setUpCanvasElement,
 };

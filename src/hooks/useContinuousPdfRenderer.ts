@@ -9,6 +9,7 @@ import {
   requestIdleCallbackShim,
   getWidestPage,
   PageData,
+  setUpCanvasElement,
 } from './utils';
 
 interface UseContinuousPdfRendererProps {
@@ -52,7 +53,8 @@ export default function useContinuousPdfRenderer({
     pageTextLayerCacheRef.current.clear();
     pagesDataRef.current = [];
   }
-  // New effect: clear caches whenever pdfDoc changes (or becomes null)
+
+  // Clear caches whenever pdfDoc changes (or becomes null)
   useEffect(() => {
     clearCaches();
   }, [pdfDoc]);
@@ -117,8 +119,6 @@ export default function useContinuousPdfRenderer({
     };
   }, [pdfDoc, containerWidth, setTotalHeight, scaleRef]);
 
-  // TODO: prioritize the rendering for scrollOffset change
-
   // Composite visible pages onto a canvas sized to the container.
   useLayoutEffect(() => {
     if (!pdfDoc) return;
@@ -135,7 +135,7 @@ export default function useContinuousPdfRenderer({
       renderRafRef.current = null;
     }
 
-    // rendering logic
+    // Rendering logic
     const compositeVisiblePages = ({
       visibleStart,
       visibleEnd,
@@ -149,11 +149,12 @@ export default function useContinuousPdfRenderer({
     }) => {
       // Adjust canvas dimensions based on devicePixelRatio.
       const devicePixelRatio = window.devicePixelRatio || 1;
-      const containerWidthLocal = container.clientWidth;
-      canvas.width = Math.floor(containerWidthLocal * devicePixelRatio);
-      canvas.height = Math.floor(visibleHeight * devicePixelRatio);
-      canvas.style.width = `${containerWidthLocal}px`;
-      canvas.style.height = `${visibleHeight}px`;
+      setUpCanvasElement(
+        canvas,
+        container.clientWidth, // containerWidthLocal
+        visibleHeight,
+        devicePixelRatio,
+      );
       ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -201,14 +202,12 @@ export default function useContinuousPdfRenderer({
     };
 
     // Determine visible region in PDF CSS pixels.
-    const visibleStart = scrollOffset;
-    const visibleEnd = scrollOffset + visibleHeight;
-    const [cacheStart, cacheEnd] = calculateStartEnd(
+    const [visibleStart, visibleEnd, cacheStart, cacheEnd] = calculateStartEnd(
       pagesDataRef.current,
-      pdfDoc.numPages,
-      visibleStart,
-      visibleEnd,
-      5,
+      pdfDoc!.numPages,
+      scrollOffset,
+      visibleHeight,
+      2,
     );
 
     // Immediately composite the visible pages.
