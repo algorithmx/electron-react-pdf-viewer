@@ -312,24 +312,27 @@ async function getPagesDataArray(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   scale: number,
 ) {
-  // Initialize the total height and an array to store each page's data.
-  let totalHeightLocal = 0;
-  const pagesDataLocal: Array<{
-    viewport: pdfjsLib.PageViewport;
-    yOffset: number;
-  }> = [];
-  // Loop through all pages in the PDF.
-  for (let i = 1; i <= pdfDoc!.numPages; i += 1) {
-    // Retrieve each page (await in loop to process sequentially).
-    // eslint-disable-next-line no-await-in-loop
-    const page = await pdfDoc!.getPage(i);
-    // Get the viewport for the page using the provided scale.
-    const viewport = page.getViewport({ scale });
-    // Store the viewport along with the current cumulative y-offset.
-    pagesDataLocal.push({ viewport, yOffset: totalHeightLocal });
-    // Increase the cumulative height for the next page.
-    totalHeightLocal += viewport.height;
-  }
+  // Fetch all pages concurrently.
+  const { numPages } = pdfDoc!;
+  const pages = await Promise.all(
+    Array.from({ length: numPages }, (_, i) => pdfDoc!.getPage(i + 1)),
+  );
+  // Use Array.reduce to compute cumulative y-offset and accumulate page data.
+  const { pagesDataLocal, totalHeightLocal } = pages.reduce(
+    (acc, page) => {
+      const viewport = page.getViewport({ scale });
+      acc.pagesDataLocal.push({ viewport, yOffset: acc.totalHeightLocal });
+      acc.totalHeightLocal += viewport.height;
+      return acc;
+    },
+    {
+      pagesDataLocal: [] as Array<{
+        viewport: pdfjsLib.PageViewport;
+        yOffset: number;
+      }>,
+      totalHeightLocal: 0,
+    },
+  );
   return { pagesDataLocal, totalHeightLocal };
 }
 

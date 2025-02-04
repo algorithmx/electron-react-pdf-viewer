@@ -1,16 +1,15 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
   calculateStartEnd,
   renderCanvas,
   renderTextLayer,
-  getPagesDataArray,
   processPage,
   requestIdleCallbackShim,
-  getWidestPage,
-  PageData,
   setUpCanvasElement,
 } from './utils';
+import usePdfLayout from './usePdfLayout';
 
 interface UseContinuousPdfRendererProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy | null;
@@ -26,6 +25,10 @@ interface UseContinuousPdfRendererProps {
   setTotalHeight: (height: number) => void;
 }
 
+/**
+ * This hook composes the rendered (pre-rendered) pages onto a canvas.
+ * It now relies on usePdfLayout for computing pages layout and scale.
+ */
 export default function useContinuousPdfRenderer({
   pdfDoc,
   containerRef,
@@ -39,85 +42,63 @@ export default function useContinuousPdfRenderer({
 }: UseContinuousPdfRendererProps): void {
   // Cache for rendered pages: key = page number, value = offscreen canvas.
   const pageCanvasCacheRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
-  // Cache for text layers: key = page number, value = text layer div.
+  // Improved: Cache for rendered text layers to avoid redundant re-rendering.
   const pageTextLayerCacheRef = useRef<Map<number, HTMLDivElement>>(new Map());
-  // Array to hold each page's viewport (dimensions) and its y-offset in the overall PDF.
-  const pagesDataRef = useRef<Array<PageData>>([]);
-  // Dummy state to force re-composition when async rendering finishes.
-  const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
-  // Add a new ref for scheduling canvas rendering via requestAnimationFrame
-  const renderRafRef = useRef<number | null>(null);
 
-  function clearCaches() {
+  // Clear caches when pdfDoc changes.
+  useEffect(() => {
     pageCanvasCacheRef.current.clear();
     pageTextLayerCacheRef.current.clear();
-    pagesDataRef.current = [];
-  }
-
-  // Clear caches whenever pdfDoc changes (or becomes null)
-  useEffect(() => {
-    clearCaches();
   }, [pdfDoc]);
 
-  // Compute layout (scale, per-page viewports and cumulative y-offsets) when pdfDoc or containerWidth changes.
-  useEffect(() => {
-    if (!pdfDoc) return;
-    let isCancelled = false;
-    clearCaches();
-    // Schedule background pre-rendering of pages one at a time.
-    function schedulePreRendering(pageNumber: number): void {
-      if (isCancelled || pageNumber > pdfDoc!.numPages) return;
-      const pageData = pagesDataRef.current[pageNumber - 1];
-      const { viewport } = pageData;
-      const outputScale = window.devicePixelRatio || 1;
+  // Retrieve layout data using the new usePdfLayout hook.
+  const pagesData = usePdfLayout({
+    pdfDoc,
+    containerWidth,
+    setTotalHeight,
+    scaleRef,
+  });
 
-      // If not cached, schedule rendering,
-      // otherwise use an immediately resolved promise.
-      const renderPromise = !pageCanvasCacheRef.current.has(pageNumber)
-        ? renderCanvas(
-            pdfDoc!,
-            pageNumber,
-            viewport,
-            outputScale,
-            setRerenderFlag,
-            pageCanvasCacheRef,
-          )
-        : Promise.resolve();
-      // eslint-disable-next-line no-void
-      void renderPromise
-        .catch((error) => {
-          // eslint-disable-next-line no-console
-          console.error('Error pre-rendering page:', error);
-        })
-        .finally(() => {
-          requestIdleCallbackShim(() => {
-            schedulePreRendering(pageNumber + 1);
-          });
-        });
-    }
+  // Dummy state to force re-render when async rendering finishes.
+  const [rerenderFlag, setRerenderFlag] = useState<boolean>(false);
+  // Ref for scheduling canvas rendering via requestAnimationFrame.
+  const renderRafRef = useRef<number | null>(null);
 
-    async function computeLayout() {
-      // Clear the previous cache when a new PDF is loaded or dimensions change.
-      const widestPage = await getWidestPage(pdfDoc!);
-      const baseViewport = widestPage.getViewport({ scale: 1 });
-      // Recalculate the scale based on the current containerWidth.
-      const scale = containerWidth / baseViewport.width;
-      scaleRef.current = scale;
-      const { pagesDataLocal, totalHeightLocal } = await getPagesDataArray(
-        pdfDoc!,
-        scale,
-      );
-      pagesDataRef.current = pagesDataLocal;
-      setTotalHeight(totalHeightLocal);
-      setRerenderFlag((prev: boolean) => !prev);
-      schedulePreRendering(1);
-    }
-    computeLayout();
-    // eslint-disable-next-line consistent-return
-    return () => {
-      isCancelled = true;
-    };
-  }, [pdfDoc, containerWidth, setTotalHeight, scaleRef]);
+  // Pre-render pages sequentially.
+  // function schedulePreRendering(pageNumber: number): void {
+  //   if (!pdfDoc || pageNumber > pdfDoc.numPages) return;
+  //   const pageData = pagesData[pageNumber - 1];
+  //   if (!pageData) return;
+  //   const outputScale = window.devicePixelRatio || 1;
+  //   const renderPromise = !pageCanvasCacheRef.current.has(pageNumber)
+  //     ? renderCanvas(
+  //         pdfDoc,
+  //         pageNumber,
+  //         pageData.viewport,
+  //         outputScale,
+  //         setRerenderFlag,
+  //         pageCanvasCacheRef,
+  //       )
+  //     : Promise.resolve();
+  //   // eslint-disable-next-line consistent-return, promise/catch-or-return
+  //   renderPromise
+  //     .catch((error) => {
+  //       // eslint-disable-next-line no-console
+  //       console.error('Error pre-rendering page:', error);
+  //     })
+  //     .finally(() => {
+  //       requestIdleCallbackShim(() => {
+  //         schedulePreRendering(pageNumber + 1);
+  //       });
+  //     });
+  // }
+
+  // (Do NOT) Initiate pre-rendering once layout data is available.
+  // useEffect(() => {
+  //   if (pdfDoc && pagesData.length > 0) {
+  //     schedulePreRendering(1);
+  //   }
+  // }, [pdfDoc, pagesData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Composite visible pages onto a canvas sized to the container.
   useLayoutEffect(() => {
@@ -135,8 +116,7 @@ export default function useContinuousPdfRenderer({
       renderRafRef.current = null;
     }
 
-    // Rendering logic
-    const compositeVisiblePages = ({
+    function compositeVisiblePages({
       visibleStart,
       visibleEnd,
       cacheStart,
@@ -146,32 +126,49 @@ export default function useContinuousPdfRenderer({
       visibleEnd: number;
       cacheStart: number;
       cacheEnd: number;
-    }) => {
-      // Adjust canvas dimensions based on devicePixelRatio.
+    }) {
       const devicePixelRatio = window.devicePixelRatio || 1;
       setUpCanvasElement(
-        canvas,
-        container.clientWidth, // containerWidthLocal
+        canvas!,
+        container!.clientWidth,
         visibleHeight,
         devicePixelRatio,
       );
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx!.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
 
-      // Clear previously rendered text layers.
+      // --- Eviction Strategy ---
+      const buffer = 2;
+      // Convert indices (zero-indexed) to page numbers (1-indexed)
+      const minAllowedPage = Math.max(1, cacheStart + 1 - buffer);
+      const maxAllowedPage = Math.min(pdfDoc!.numPages, cacheEnd + 1 + buffer);
+
+      // Helper to evict entries outside of the allowed range.
+      const evictCacheEntries = <T>(cache: Map<number, T>): void => {
+        Array.from(cache.keys()).forEach((page) => {
+          if (page < minAllowedPage || page > maxAllowedPage) {
+            cache.delete(page);
+          }
+        });
+      };
+
+      evictCacheEntries(pageCanvasCacheRef.current);
+      evictCacheEntries(pageTextLayerCacheRef.current);
+      // --- End of Eviction Strategy ---
+
+      // Clear old text layer elements.
       if (textLayerRef.current) {
         textLayerRef.current.innerHTML = '';
       }
 
-      // Iterate only over pages in the cache range.
+      // Iterate over pages in the current cache range.
       for (let i = cacheStart; i <= cacheEnd; i += 1) {
-        const pageData = pagesDataRef.current[i];
+        const pageData = pagesData[i];
         if (!pageData) {
           // eslint-disable-next-line no-continue
           continue;
         }
 
-        // Process the canvas drawing.
         processPage(
           pageData,
           i,
@@ -179,38 +176,44 @@ export default function useContinuousPdfRenderer({
           visibleEnd,
           cacheStart,
           cacheEnd,
-          ctx,
-          pdfDoc,
+          ctx!,
+          pdfDoc!,
           pageCanvasCacheRef,
           setRerenderFlag,
         );
 
-        // Process text layer rendering if this page is visible.
         const pageBottom = pageData.yOffset + pageData.viewport.height;
         if (pageBottom >= visibleStart && pageData.yOffset <= visibleEnd) {
-          renderTextLayer(pageData, pdfDoc, i + 1)
-            .then((textDiv) => {
-              textLayerRef.current?.appendChild(textDiv);
-              return null;
-            })
-            .catch((error) => {
-              // eslint-disable-next-line no-console
-              console.error('Error rendering text layer:', error);
-            });
+          const pageNumber = i + 1;
+          // Use a cached text layer if available; otherwise, render it.
+          if (pageTextLayerCacheRef.current.has(pageNumber)) {
+            textLayerRef.current?.appendChild(
+              pageTextLayerCacheRef.current.get(pageNumber)!,
+            );
+          } else {
+            renderTextLayer(pageData, pdfDoc!, pageNumber)
+              .then((textDiv) => {
+                textLayerRef.current?.appendChild(textDiv);
+                pageTextLayerCacheRef.current.set(pageNumber, textDiv);
+                return null;
+              })
+              .catch((error) => {
+                // eslint-disable-next-line no-console
+                console.error('Error rendering text layer:', error);
+              });
+          }
         }
       }
-    };
+    }
 
-    // Determine visible region in PDF CSS pixels.
     const [visibleStart, visibleEnd, cacheStart, cacheEnd] = calculateStartEnd(
-      pagesDataRef.current,
+      pagesData,
       pdfDoc!.numPages,
       scrollOffset,
       visibleHeight,
       2,
     );
 
-    // Immediately composite the visible pages.
     compositeVisiblePages({
       visibleStart,
       visibleEnd,
@@ -226,6 +229,7 @@ export default function useContinuousPdfRenderer({
     visibleHeight,
     rerenderFlag,
     containerWidth,
+    pagesData,
     setTotalHeight,
   ]);
 }
