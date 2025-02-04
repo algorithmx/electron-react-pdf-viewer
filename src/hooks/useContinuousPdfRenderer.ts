@@ -1,12 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
   calculateStartEnd,
-  renderCanvas,
   renderTextLayer,
   processPage,
-  requestIdleCallbackShim,
   setUpCanvasElement,
 } from './utils';
 import usePdfLayout from './usePdfLayout';
